@@ -201,7 +201,7 @@ function summarizeForSpeech(text, config) {
   }
 
   // Fallback: clean and truncate the full response
-  const maxLength = config.voiceOutput?.maxAbstractLength || config.tts?.maxSpeechLength || 1500;
+  const maxLength = config.tts?.maxSpeechLength || 5000;
 
   let cleaned = cleanForTTS(text);
 
