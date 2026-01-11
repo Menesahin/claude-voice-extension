@@ -21,20 +21,27 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const DEFAULT_CONFIG = path.join(__dirname, '..', 'config', 'default.json');
 const HOOKS_DIR = path.join(__dirname, '..', 'hooks');
 
-console.log('\n  Claude Voice Extension - Auto Setup\n');
+console.log('\n╔════════════════════════════════════════════════════════════╗');
+console.log('║          Claude Voice Extension - Auto Setup               ║');
+console.log('╚════════════════════════════════════════════════════════════╝\n');
 
 // 1. Create config directory
+console.log('Step 1/5: Setting up configuration...');
 if (!fs.existsSync(CONFIG_DIR)) {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  console.log('  [+] Created config directory:', CONFIG_DIR);
+  console.log('  [✓] Created config directory');
+} else {
+  console.log('  [✓] Config directory exists');
 }
 
 // 2. Copy default config if none exists
 if (!fs.existsSync(CONFIG_FILE)) {
   if (fs.existsSync(DEFAULT_CONFIG)) {
     fs.copyFileSync(DEFAULT_CONFIG, CONFIG_FILE);
-    console.log('  [+] Created default configuration');
+    console.log('  [✓] Created default configuration');
   }
+} else {
+  console.log('  [✓] Configuration file exists');
 }
 
 // 3. Configure with sensible defaults
@@ -53,25 +60,26 @@ try {
   config.stt.sherpaOnnx.model = 'whisper-small';
 
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
-  console.log('  [+] Configured defaults: Piper TTS + Whisper STT');
+  console.log('  [✓] Configured: Piper TTS + Whisper STT');
 } catch (err) {
   console.log('  [!] Could not update config:', err.message);
 }
 
 // 4. Install Claude Code hooks
+console.log('\nStep 2/5: Installing Claude Code hooks...');
 try {
   const settingsFile = installHooks(HOOKS_DIR);
-  console.log('  [+] Installed Claude Code hooks');
-  console.log('      Settings:', settingsFile);
+  console.log('  [✓] Hooks installed');
+  console.log('  [✓] Settings file:', settingsFile);
 } catch (err) {
   console.log('  [!] Could not install hooks:', err.message);
 }
 
 // 5. Install Piper TTS and download default voice
 const binPath = path.join(__dirname, '..', 'bin', 'claude-voice');
+console.log('\nStep 3/5: Installing Piper TTS engine...');
+console.log('  (First-time install may take 1-2 minutes)\n');
 try {
-  console.log('\n  Installing Piper TTS and downloading voice...');
-  console.log('  (This may take a few minutes on first install)\n');
   execSync(`"${binPath}" voice download en_US-joe-medium`, {
     stdio: 'inherit',
     timeout: 300000  // 5 min timeout
@@ -82,9 +90,9 @@ try {
 }
 
 // 6. Download whisper-small STT model
+console.log('\nStep 4/5: Downloading Whisper STT model...');
+console.log('  (This may take 2-3 minutes depending on connection)\n');
 try {
-  console.log('\n  Downloading whisper-small STT model...');
-  console.log('  (This may take a few minutes)\n');
   execSync(`"${binPath}" model download whisper-small`, {
     stdio: 'inherit',
     timeout: 300000  // 5 min timeout
@@ -94,19 +102,22 @@ try {
   console.log('      Run manually: claude-voice model download whisper-small');
 }
 
-// 7. Show platform info
+// 7. Show platform info and completion
+console.log('\nStep 5/5: Finalizing setup...');
 const platform = os.platform();
-console.log(`\n  Platform: ${platform}`);
+console.log(`  [✓] Platform: ${platform}`);
 
 if (platform === 'darwin') {
-  console.log('  Audio: macOS native (afplay)');
+  console.log('  [✓] Audio: macOS native (afplay)');
 } else if (platform === 'linux') {
-  console.log('  Audio: Linux (aplay/paplay/ffplay)');
-  console.log('  Note: Install xdotool for terminal injection: sudo apt install xdotool');
+  console.log('  [✓] Audio: Linux (aplay/paplay/ffplay)');
+  console.log('  [i] Note: Install xdotool for terminal injection: sudo apt install xdotool');
 }
 
 // 8. Show next steps
-console.log('\n  Setup Complete!\n');
+console.log('\n╔════════════════════════════════════════════════════════════╗');
+console.log('║                    Setup Complete!                         ║');
+console.log('╚════════════════════════════════════════════════════════════╝\n');
 console.log('  The extension will auto-start when you launch Claude Code.');
 console.log('  TTS and STT are ready to use.\n');
 console.log('  Optional:');

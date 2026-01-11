@@ -271,7 +271,7 @@ function findPython(): string | null {
  */
 export async function installPiper(): Promise<void> {
   if (isPiperInstalled()) {
-    console.log('Piper is already installed.');
+    console.log('  [✓] Piper TTS already installed');
     return;
   }
 
@@ -285,7 +285,7 @@ export async function installPiper(): Promise<void> {
     );
   }
 
-  console.log(`Using Python: ${python}`);
+  console.log(`  [1/3] Found Python: ${python}`);
 
   // Create piper directory
   if (!fs.existsSync(PIPER_DIR)) {
@@ -293,15 +293,15 @@ export async function installPiper(): Promise<void> {
   }
 
   // Create virtual environment
-  console.log('Creating virtual environment...');
-  execSync(`${python} -m venv "${PIPER_VENV}"`, { stdio: 'inherit' });
+  console.log('  [2/3] Creating Python virtual environment...');
+  execSync(`${python} -m venv "${PIPER_VENV}"`, { stdio: 'pipe' });
 
   // Install piper-tts
-  console.log('Installing piper-tts (this may take a minute)...');
+  console.log('  [3/3] Installing piper-tts package (this may take a minute)...');
   const pip = path.join(PIPER_VENV, 'bin', 'pip');
-  execSync(`"${pip}" install piper-tts`, { stdio: 'inherit' });
+  execSync(`"${pip}" install --quiet piper-tts`, { stdio: 'pipe' });
 
-  console.log('Piper installed successfully!');
+  console.log('  [✓] Piper TTS installed successfully');
 }
 
 /**
@@ -334,16 +334,17 @@ function getVoiceUrls(voiceId: string): { onnx: string; json: string } {
 export async function downloadVoice(voiceId: string): Promise<void> {
   // First ensure Piper is installed
   if (!isPiperInstalled()) {
-    console.log('Piper not installed. Installing...');
+    console.log('\n  Installing Piper TTS engine...\n');
     await installPiper();
+    console.log('');
   }
 
   // Check if voice is in our catalog
   const voiceInfo = PIPER_VOICES[voiceId];
   if (!voiceInfo) {
-    console.warn(`Voice "${voiceId}" not in catalog. Attempting download anyway...`);
+    console.warn(`  [!] Voice "${voiceId}" not in catalog. Attempting download anyway...`);
   } else {
-    console.log(`Downloading voice: ${voiceInfo.name}`);
+    console.log(`  Voice: ${voiceInfo.name} (${voiceInfo.language})`);
   }
 
   // Create voices directory
@@ -355,7 +356,7 @@ export async function downloadVoice(voiceId: string): Promise<void> {
   const jsonPath = path.join(VOICES_DIR, `${voiceId}.onnx.json`);
 
   if (fs.existsSync(onnxPath) && fs.existsSync(jsonPath)) {
-    console.log(`Voice already installed: ${voiceId}`);
+    console.log(`  [✓] Voice already installed: ${voiceId}`);
     return;
   }
 
@@ -363,17 +364,14 @@ export async function downloadVoice(voiceId: string): Promise<void> {
 
   try {
     // Download ONNX model
-    console.log('Downloading model file...');
-    execSync(`curl -L -o "${onnxPath}" "${urls.onnx}"`, { stdio: 'inherit' });
+    console.log(`  [1/2] Downloading voice model (~50MB)...`);
+    execSync(`curl -L --progress-bar -o "${onnxPath}" "${urls.onnx}"`, { stdio: 'inherit' });
 
     // Download JSON config
-    console.log('Downloading config file...');
-    execSync(`curl -L -o "${jsonPath}" "${urls.json}"`, { stdio: 'inherit' });
+    console.log(`  [2/2] Downloading voice config...`);
+    execSync(`curl -sL -o "${jsonPath}" "${urls.json}"`, { stdio: 'inherit' });
 
-    console.log(`\nVoice installed: ${voiceId}`);
-    console.log('\nTo use this voice:');
-    console.log(`  claude-voice config set tts.provider piper`);
-    console.log(`  claude-voice config set tts.piper.voice ${voiceId}`);
+    console.log(`  [✓] Voice installed: ${voiceId}`);
   } catch (error) {
     // Cleanup partial downloads
     if (fs.existsSync(onnxPath)) fs.unlinkSync(onnxPath);

@@ -79,6 +79,17 @@ function deletePid(): void {
   }
 }
 
+function findDaemonByPort(): number | null {
+  try {
+    // Use lsof to find process listening on port 3456
+    const result = execSync('lsof -ti :3456 2>/dev/null', { encoding: 'utf-8' });
+    const pid = parseInt(result.trim(), 10);
+    return isNaN(pid) ? null : pid;
+  } catch {
+    return null;
+  }
+}
+
 function checkHooksInstalled(): boolean {
   const settingsFile = path.join(process.env.HOME || '~', '.claude', 'settings.json');
   if (!fs.existsSync(settingsFile)) return false;
@@ -158,8 +169,31 @@ program
     const isRunning = await checkDaemon();
 
     if (isRunning) {
-      console.log('Daemon is already running.');
+      // Daemon is running - ensure PID file exists
+      if (!readPid()) {
+        const orphanPid = findDaemonByPort();
+        if (orphanPid) {
+          savePid(orphanPid);
+          console.log(`Daemon is already running (PID: ${orphanPid}).`);
+        } else {
+          console.log('Daemon is already running.');
+        }
+      } else {
+        console.log('Daemon is already running.');
+      }
       return;
+    }
+
+    // Check for orphan process on port before starting
+    const orphanPid = findDaemonByPort();
+    if (orphanPid) {
+      console.log(`Found orphan daemon (PID: ${orphanPid}). Stopping it first...`);
+      try {
+        process.kill(orphanPid, 'SIGTERM');
+        await new Promise((r) => setTimeout(r, 1000));
+      } catch {
+        // Ignore
+      }
     }
 
     const indexPath = path.join(__dirname, 'index.js');
@@ -211,7 +245,15 @@ program
   .command('stop')
   .description('Stop the voice extension daemon')
   .action(async () => {
-    const pid = readPid();
+    let pid = readPid();
+
+    // If no PID file, try to find orphan daemon by port
+    if (!pid) {
+      pid = findDaemonByPort();
+      if (pid) {
+        console.log(`Found orphan daemon (PID: ${pid})`);
+      }
+    }
 
     if (pid) {
       try {
@@ -223,7 +265,7 @@ program
         deletePid();
       }
     } else {
-      console.log('No daemon PID found.');
+      console.log('No daemon running.');
     }
   });
 
@@ -231,7 +273,8 @@ program
   .command('restart')
   .description('Restart the voice extension daemon')
   .action(async () => {
-    const pid = readPid();
+    // Try to stop by PID file first
+    let pid = readPid();
 
     if (pid) {
       try {
@@ -241,6 +284,19 @@ program
         await new Promise((r) => setTimeout(r, 1000));
       } catch {
         // Already stopped
+        deletePid();
+      }
+    }
+
+    // Also check for orphan daemon by port
+    const orphanPid = findDaemonByPort();
+    if (orphanPid) {
+      console.log(`Found orphan daemon (PID: ${orphanPid}). Stopping it...`);
+      try {
+        process.kill(orphanPid, 'SIGTERM');
+        await new Promise((r) => setTimeout(r, 1000));
+      } catch {
+        // Ignore
       }
     }
 

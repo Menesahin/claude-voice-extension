@@ -182,7 +182,7 @@ export async function downloadModel(modelId: keyof typeof SHERPA_MODELS): Promis
   const modelPath = path.join(MODELS_DIR, modelInfo.folder);
 
   if (fs.existsSync(modelPath)) {
-    console.log(`Model already exists: ${modelPath}`);
+    console.log(`  [✓] Model already installed: ${modelId}`);
     return;
   }
 
@@ -191,32 +191,33 @@ export async function downloadModel(modelId: keyof typeof SHERPA_MODELS): Promis
     fs.mkdirSync(MODELS_DIR, { recursive: true });
   }
 
-  console.log(`Downloading ${modelInfo.name}...`);
-  console.log(`URL: ${modelInfo.url}`);
+  console.log(`  Model: ${modelInfo.name}`);
+  console.log(`  Languages: ${modelInfo.languages.slice(0, 5).join(', ')}...`);
 
   const { execSync } = require('child_process');
   const archivePath = path.join(MODELS_DIR, `${modelId}.tar.bz2`);
 
   try {
     // Download with curl
-    execSync(`curl -L -o "${archivePath}" "${modelInfo.url}"`, {
+    console.log(`  [1/2] Downloading model (~150MB)...`);
+    execSync(`curl -L --progress-bar -o "${archivePath}" "${modelInfo.url}"`, {
       stdio: 'inherit',
       cwd: MODELS_DIR
     });
 
     // Extract
-    console.log('Extracting...');
+    console.log('  [2/2] Extracting model files...');
     execSync(`tar -xjf "${archivePath}"`, {
-      stdio: 'inherit',
+      stdio: 'pipe',
       cwd: MODELS_DIR
     });
 
     // Cleanup archive
     fs.unlinkSync(archivePath);
 
-    console.log(`Model installed: ${modelPath}`);
+    console.log(`  [✓] Model installed: ${modelId}`);
   } catch (error) {
-    console.error('Download failed:', error);
+    console.error('  [!] Download failed:', error);
     throw error;
   }
 }
