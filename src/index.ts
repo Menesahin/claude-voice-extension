@@ -9,14 +9,14 @@
 import { loadConfig } from './config';
 import { loadEnvVars } from './env';
 import { startServer } from './server';
-import { WakeWordDetector } from './wake-word';
+import { createWakeWordDetector, IWakeWordDetector } from './wake-word';
 import { STTManager } from './stt';
 import { sendToClaudeCode } from './terminal/input-injector';
 import { saveToWav } from './wake-word/recorder';
 import * as path from 'path';
 import * as os from 'os';
 
-let wakeWordDetector: WakeWordDetector | null = null;
+let wakeWordDetector: IWakeWordDetector | null = null;
 let sttManager: STTManager | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let keyListener: any = null;
@@ -49,13 +49,13 @@ async function startDaemon(): Promise<void> {
   console.log('Claude Voice Extension is ready!');
   console.log(`TTS Provider: ${config.tts.provider}`);
   console.log(`STT Provider: ${config.stt.provider}`);
-  console.log(`Wake Word: ${config.wakeWord.enabled ? 'enabled' : 'disabled'}`);
+  console.log(`Wake Word: ${config.wakeWord.enabled ? `enabled (${config.wakeWord.provider || 'sherpa-onnx'})` : 'disabled'}`);
   console.log(`Shortcut: ${config.shortcut?.enabled ? config.shortcut.key : 'disabled'}`);
 }
 
 async function initializeWakeWord(config: ReturnType<typeof loadConfig>): Promise<void> {
   try {
-    wakeWordDetector = new WakeWordDetector(config.wakeWord, config.recording);
+    wakeWordDetector = createWakeWordDetector(config.wakeWord, config.recording);
 
     wakeWordDetector.on('wakeword', () => {
       console.log('Wake word detected! Listening for command...');

@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { WakeWordConfig, RecordingConfig } from '../config';
 import { getPlatformCapabilities } from '../platform';
+import { PicovoiceDetector } from './picovoice-detector';
 
 // Play system sounds (cross-platform)
 function playSound(soundName: string): void {
@@ -34,7 +35,38 @@ const KWS_MODEL = {
   size: '19 MB',
 };
 
-export class WakeWordDetector extends EventEmitter {
+/**
+ * Base interface for wake word detectors
+ */
+export interface IWakeWordDetector extends EventEmitter {
+  initialize(): Promise<void>;
+  start(): Promise<void>;
+  stop(): void;
+  cleanup(): void;
+}
+
+/**
+ * Factory function to create the appropriate wake word detector
+ */
+export function createWakeWordDetector(
+  config: WakeWordConfig,
+  recordingConfig: RecordingConfig
+): IWakeWordDetector {
+  const provider = config.provider || 'sherpa-onnx';
+
+  if (provider === 'picovoice') {
+    console.log('Using Picovoice wake word detection');
+    return new PicovoiceDetector(config, recordingConfig);
+  }
+
+  console.log('Using Sherpa-ONNX wake word detection');
+  return new SherpaOnnxDetector(config, recordingConfig);
+}
+
+/**
+ * Sherpa-ONNX based wake word detector (default, free)
+ */
+export class SherpaOnnxDetector extends EventEmitter implements IWakeWordDetector {
   private config: WakeWordConfig;
   private recordingConfig: RecordingConfig;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -411,3 +443,7 @@ export async function downloadKwsModel(): Promise<void> {
   console.log('Keyword spotting model installed successfully!');
   console.log('Wake word tokens are configured in ~/.claude-voice/config.json');
 }
+
+// Backward compatibility - export the old class name as an alias
+export { SherpaOnnxDetector as WakeWordDetector };
+export { PicovoiceDetector };

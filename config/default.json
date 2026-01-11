@@ -46,6 +46,7 @@
   },
   "wakeWord": {
     "enabled": true,
+    "provider": "sherpa-onnx",
     "keyword": "jarvis",
     "sensitivity": 0.5,
     "playSound": true,
@@ -60,6 +61,9 @@
         "▁C L A U D E",
         "C L A U DE"
       ]
+    },
+    "picovoice": {
+      "accessKey": ""
     }
   },
   "notifications": {
