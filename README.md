@@ -38,6 +38,18 @@ claude-voice start
 npm install -g claude-voice
 ```
 
+This will automatically:
+1. Set up configuration with sensible defaults
+2. Install Claude Code hooks for auto-start
+3. Install Piper TTS engine (local, free)
+4. Download default voice (en_US-joe-medium)
+5. Download Whisper STT model (whisper-small)
+
+**For verbose install output:**
+```bash
+npm install -g claude-voice --foreground-scripts
+```
+
 ### Install from source
 
 ```bash
