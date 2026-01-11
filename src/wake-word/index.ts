@@ -2,11 +2,27 @@ import { EventEmitter } from 'events';
 import { spawn } from 'child_process';
 import { WakeWordConfig, RecordingConfig } from '../config';
 import { AudioRecorder } from './recorder';
+import { getPlatformCapabilities } from '../platform';
 
-// Play macOS system sounds
+// Play system sounds (cross-platform)
 function playSound(soundName: string): void {
-  const soundPath = `/System/Library/Sounds/${soundName}.aiff`;
-  spawn('afplay', [soundPath], { stdio: 'ignore' });
+  const caps = getPlatformCapabilities();
+
+  if (caps.platform === 'darwin') {
+    const soundPath = `/System/Library/Sounds/${soundName}.aiff`;
+    spawn('afplay', [soundPath], { stdio: 'ignore' });
+  } else if (caps.platform === 'linux' && caps.audioPlayer) {
+    // Try freedesktop sounds on Linux
+    const linuxSounds: Record<string, string> = {
+      'Ping': '/usr/share/sounds/freedesktop/stereo/message.oga',
+      'Pop': '/usr/share/sounds/freedesktop/stereo/complete.oga',
+    };
+    const soundPath = linuxSounds[soundName];
+    if (soundPath) {
+      spawn(caps.audioPlayer, [soundPath], { stdio: 'ignore' });
+    }
+  }
+  // Silently skip if no audio player available
 }
 
 // Porcupine types (will be dynamically imported)

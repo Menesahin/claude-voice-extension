@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { TTSProvider } from '../index';
+import { getPlatformCapabilities } from '../../platform';
 
 const PIPER_DIR = path.join(os.homedir(), '.claude-voice', 'piper');
 const PIPER_VENV = path.join(PIPER_DIR, 'venv');
@@ -164,8 +165,9 @@ export class PiperProvider implements TTSProvider {
           return;
         }
 
-        // Play the generated file
-        const playerCmd = platform === 'darwin' ? 'afplay' : 'aplay';
+        // Play the generated file using platform-detected player
+        const caps = getPlatformCapabilities();
+        const playerCmd = caps.audioPlayer || (platform === 'darwin' ? 'afplay' : 'aplay');
         const player = spawn(playerCmd, [tempFile], {
           stdio: ['ignore', 'ignore', 'ignore'],
         });
@@ -225,14 +227,23 @@ export function isPiperInstalled(): boolean {
  */
 function findPython(): string | null {
   const candidates = [
+    // macOS Homebrew
     '/opt/homebrew/bin/python3.12',
-    '/usr/local/bin/python3.12',
     '/opt/homebrew/bin/python3.11',
-    '/usr/local/bin/python3.11',
     '/opt/homebrew/bin/python3',
+    '/usr/local/bin/python3.12',
+    '/usr/local/bin/python3.11',
     '/usr/local/bin/python3',
+    // Linux
+    '/usr/bin/python3.12',
+    '/usr/bin/python3.11',
+    '/usr/bin/python3.10',
+    '/usr/bin/python3.9',
+    '/usr/bin/python3',
+    // Generic (uses PATH)
     'python3.12',
     'python3.11',
+    'python3.10',
     'python3',
   ];
 
@@ -266,8 +277,11 @@ export async function installPiper(): Promise<void> {
 
   const python = findPython();
   if (!python) {
+    const installCmd = process.platform === 'darwin'
+      ? 'brew install python@3.12'
+      : 'sudo apt install python3.12 python3.12-venv';
     throw new Error(
-      'Python 3.9-3.13 not found. Install with: brew install python@3.12'
+      `Python 3.9-3.13 not found. Install with: ${installCmd}`
     );
   }
 

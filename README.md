@@ -81,11 +81,11 @@ claude-voice config edit
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `tts.provider` | string | `macos-say` | TTS provider: `macos-say`, `openai`, `elevenlabs`, `disabled` |
-| `tts.autoSpeak` | boolean | `true` | Automatically speak Claude's responses |
+| `tts.provider` | string | `macos-say` | TTS provider: `macos-say`, `openai`, `elevenlabs`, `piper`, `espeak`, `disabled` |
+| `tts.autoSpeak` | boolean | `false` | Automatically speak Claude's responses |
 | `tts.maxSpeechLength` | number | `500` | Maximum characters to speak |
 | `tts.skipCodeBlocks` | boolean | `true` | Skip code blocks when speaking |
-| `stt.provider` | string | `openai` | STT provider: `openai`, `whisper-local`, `disabled` |
+| `stt.provider` | string | `openai` | STT provider: `openai`, `whisper-local`, `sherpa-onnx`, `disabled` |
 | `stt.language` | string | `en` | Default language for transcription |
 | `wakeWord.enabled` | boolean | `true` | Enable wake word detection |
 | `wakeWord.keyword` | string | `jarvis` | Wake word keyword |
@@ -94,9 +94,26 @@ claude-voice config edit
 | `notifications.enabled` | boolean | `true` | Enable voice notifications |
 | `notifications.permissionPrompt` | boolean | `true` | Speak permission prompts |
 | `notifications.idlePrompt` | boolean | `true` | Speak idle prompts |
-| `voiceOutput.enabled` | boolean | `true` | Enable TTS-friendly response formatting |
+| `notifications.errors` | boolean | `false` | Speak error notifications |
+| `voiceOutput.enabled` | boolean | `false` | Enable TTS-friendly response formatting |
 | `voiceOutput.abstractMarker` | string | `<!-- TTS -->` | Marker separating spoken/technical content |
 | `voiceOutput.maxAbstractLength` | number | `200` | Max characters for spoken abstract |
+| `voiceOutput.promptTemplate` | string | `null` | Custom prompt template path |
+| `toolTTS.enabled` | boolean | `true` | Enable TTS announcements for tool use |
+| `toolTTS.mode` | string | `summarize` | Tool announcement mode: `summarize` or `completion` |
+| `toolTTS.announceErrors` | boolean | `true` | Announce tool execution errors |
+| `toolTTS.maxSummaryLength` | number | `100` | Max characters for tool summaries |
+| `terminal.injectionMethod` | string | `auto` | Terminal injection: `auto`, `applescript`, `xdotool` |
+| `terminal.targetTerminal` | string | `auto` | Target terminal: `auto`, `iterm`, `terminal`, etc. |
+| `terminal.pressEnterAfterInput` | boolean | `true` | Press enter after injecting text |
+| `recording.sampleRate` | number | `16000` | Audio sample rate in Hz |
+| `recording.channels` | number | `1` | Audio channels (mono=1, stereo=2) |
+| `recording.silenceThreshold` | number | `2000` | Silence duration (ms) to stop recording |
+| `recording.silenceAmplitude` | number | `500` | Amplitude threshold for silence detection |
+| `recording.maxDuration` | number | `30000` | Maximum recording duration (ms) |
+| `server.port` | number | `3456` | Daemon HTTP server port |
+| `server.host` | string | `127.0.0.1` | Daemon HTTP server host |
+| `debug` | boolean | `false` | Enable debug logging |
 
 ## TTS Providers
 
