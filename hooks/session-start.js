@@ -17,6 +17,7 @@ const API_URL = 'http://127.0.0.1:3456';
 const CONFIG_FILE = path.join(os.homedir(), '.claude-voice', 'config.json');
 const ENV_FILE = path.join(os.homedir(), '.claude-voice', '.env');
 const LOG_FILE = path.join(os.homedir(), '.claude-voice', 'daemon.log');
+const PID_FILE = path.join(os.homedir(), '.claude-voice', 'daemon.pid');
 const USER_VOICE_PROMPT = path.join(os.homedir(), '.claude-voice', 'voice-prompt.md');
 const DEFAULT_VOICE_PROMPT = path.join(__dirname, '..', 'config', 'voice-prompt.md');
 
@@ -132,6 +133,11 @@ async function startDaemon() {
     stdio: ['ignore', logStream, logStream],
     env: process.env
   });
+
+  // Save PID file so `claude-voice stop` can find the process
+  if (child.pid) {
+    fs.writeFileSync(PID_FILE, String(child.pid));
+  }
 
   child.unref();
 

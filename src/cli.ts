@@ -110,7 +110,49 @@ program
   .description('Start the voice extension daemon')
   .option('-f, --foreground', "Run in foreground (don't daemonize)")
   .action(async (options) => {
-    // Load env vars first
+    // First-run check: ensure config and hooks are set up
+    const configDir = path.join(process.env.HOME || '~', '.claude-voice');
+    const configFile = path.join(configDir, 'config.json');
+    const defaultConfigPath = path.join(__dirname, '..', 'config', 'default.json');
+
+    if (!fs.existsSync(configFile)) {
+      console.log('First run detected. Setting up...');
+
+      // Create config directory
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
+      // Copy default config
+      if (fs.existsSync(defaultConfigPath)) {
+        fs.copyFileSync(defaultConfigPath, configFile);
+      }
+
+      // Configure with defaults
+      try {
+        const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+        config.tts = config.tts || {};
+        config.tts.provider = 'piper';
+        config.tts.piper = { voice: 'en_US-joe-medium', speaker: 0 };
+        config.stt = config.stt || {};
+        config.stt.provider = 'sherpa-onnx';
+        config.stt.sherpaOnnx = config.stt.sherpaOnnx || {};
+        config.stt.sherpaOnnx.model = 'whisper-small';
+        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        console.log('  [+] Configured defaults (Piper TTS + Whisper STT)');
+      } catch {
+        // Ignore config errors
+      }
+    }
+
+    // Ensure hooks are installed
+    if (!checkHooksInstalled()) {
+      console.log('Installing Claude Code hooks...');
+      installHooksHelper();
+      console.log('  [+] Hooks installed');
+    }
+
+    // Load env vars
     loadEnvVars();
 
     const isRunning = await checkDaemon();
@@ -583,84 +625,13 @@ program
 
 const hooksCommand = program.command('hooks').description('Manage Claude Code hooks');
 
+// Import shared hooks module
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const hooksModule = require('../scripts/install-hooks');
+
 function installHooksHelper(): void {
-  const claudeSettingsDir = path.join(process.env.HOME || '~', '.claude');
-  const settingsFile = path.join(claudeSettingsDir, 'settings.json');
-
-  // Ensure directory exists
-  if (!fs.existsSync(claudeSettingsDir)) {
-    fs.mkdirSync(claudeSettingsDir, { recursive: true });
-  }
-
-  // Load existing settings or create new
-  let settings: Record<string, unknown> = {};
-  if (fs.existsSync(settingsFile)) {
-    try {
-      settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-    } catch {
-      // Start fresh
-    }
-  }
-
   const hooksDir = path.join(__dirname, '..', 'hooks');
-
-  // Define hooks
-  const hooks = {
-    SessionStart: [
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: `node "${path.join(hooksDir, 'session-start.js')}"`,
-            timeout: 10,
-          },
-        ],
-      },
-    ],
-    Stop: [
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: `node "${path.join(hooksDir, 'stop.js')}"`,
-            timeout: 10,
-          },
-        ],
-      },
-    ],
-    Notification: [
-      {
-        matcher: 'permission_prompt|idle_prompt',
-        hooks: [
-          {
-            type: 'command',
-            command: `node "${path.join(hooksDir, 'notification.js')}"`,
-            timeout: 5,
-          },
-        ],
-      },
-    ],
-    PostToolUse: [
-      {
-        hooks: [
-          {
-            type: 'command',
-            command: `node "${path.join(hooksDir, 'post-tool-use.js')}"`,
-            timeout: 5,
-          },
-        ],
-      },
-    ],
-  };
-
-  // Merge hooks
-  settings.hooks = {
-    ...((settings.hooks as Record<string, unknown>) || {}),
-    ...hooks,
-  };
-
-  // Save settings
-  fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
+  hooksModule.installHooks(hooksDir);
 }
 
 hooksCommand
@@ -676,34 +647,10 @@ hooksCommand
   .command('uninstall')
   .description('Remove Claude Code hooks')
   .action(() => {
-    const settingsFile = path.join(process.env.HOME || '~', '.claude', 'settings.json');
-
-    if (!fs.existsSync(settingsFile)) {
-      console.log('No settings file found.');
-      return;
-    }
-
-    try {
-      const settings = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
-
-      if (settings.hooks) {
-        delete settings.hooks.SessionStart;
-        delete settings.hooks.Stop;
-        delete settings.hooks.Notification;
-        delete settings.hooks.PostToolUse;
-
-        // Remove hooks object if empty
-        if (Object.keys(settings.hooks).length === 0) {
-          delete settings.hooks;
-        }
-
-        fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
-        console.log('Hooks uninstalled successfully!');
-      } else {
-        console.log('No hooks found to uninstall.');
-      }
-    } catch (error) {
-      console.error('Failed to uninstall hooks:', error);
+    if (hooksModule.uninstallHooks()) {
+      console.log('Hooks uninstalled successfully!');
+    } else {
+      console.log('No hooks found to uninstall.');
     }
   });
 
@@ -712,11 +659,6 @@ hooksCommand
   .description('Check hooks installation status')
   .action(() => {
     const settingsFile = path.join(process.env.HOME || '~', '.claude', 'settings.json');
-
-    if (!fs.existsSync(settingsFile)) {
-      console.log('Status: Not installed (no settings file)');
-      return;
-    }
 
     if (checkHooksInstalled()) {
       console.log('Status: Installed');
