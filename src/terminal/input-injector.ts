@@ -122,11 +122,13 @@ export class TerminalInputInjector {
     // Default: Terminal.app
     // For Terminal, we use System Events to type
     // Note: keystroke and key code must be separate statements
+    // Added delay before Enter to prevent race condition
     if (pressEnter) {
       return `tell application "Terminal" to activate
 delay 0.1
 tell application "System Events"
 keystroke "${text}"
+delay 0.15
 key code 36
 end tell`;
     }

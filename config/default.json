@@ -1,9 +1,9 @@
 {
   "version": 1,
   "tts": {
-    "provider": "macos-say",
-    "autoSpeak": false,
-    "maxSpeechLength": 500,
+    "provider": "piper",
+    "autoSpeak": true,
+    "maxSpeechLength": 5000,
     "skipCodeBlocks": true,
     "macos": {
       "voice": "Samantha",
@@ -26,12 +26,12 @@
       "pitch": 50
     },
     "piper": {
-      "voice": "en_US-lessac-medium",
+      "voice": "en_US-joe-medium",
       "speaker": 0
     }
   },
   "stt": {
-    "provider": "openai",
+    "provider": "sherpa-onnx",
     "language": "en",
     "sherpaOnnx": {
       "model": "whisper-tiny"
@@ -48,10 +48,22 @@
     "enabled": true,
     "keyword": "jarvis",
     "sensitivity": 0.5,
-    "playSound": true
+    "playSound": true,
+    "keywords": {
+      "jarvis": [
+        "▁JA R VI S",
+        "▁JA R V I S",
+        "J AR VI S"
+      ],
+      "claude": [
+        "▁C L A U DE",
+        "▁C L A U D E",
+        "C L A U DE"
+      ]
+    }
   },
   "notifications": {
-    "enabled": true,
+    "enabled": false,
     "permissionPrompt": true,
     "idlePrompt": true,
     "errors": false,
@@ -67,7 +79,7 @@
     "promptTemplate": null
   },
   "toolTTS": {
-    "enabled": true,
+    "enabled": false,
     "mode": "summarize",
     "tools": {
       "Read": true,
@@ -89,6 +101,11 @@
     "announceErrors": true,
     "maxSummaryLength": 100
   },
+  "shortcut": {
+    "enabled": true,
+    "key": "CommandOrControl+Shift+Space",
+    "description": "Press to start voice recording (more reliable than wake word)"
+  },
   "terminal": {
     "injectionMethod": "auto",
     "targetTerminal": "auto",
@@ -97,9 +114,9 @@
   "recording": {
     "sampleRate": 16000,
     "channels": 1,
-    "silenceThreshold": 2000,
+    "silenceThreshold": 2500,
     "silenceAmplitude": 500,
-    "maxDuration": 30000
+    "maxDuration": 60000
   },
   "server": {
     "port": 3456,

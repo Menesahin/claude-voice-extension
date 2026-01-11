@@ -1,6 +1,6 @@
 {
   "name": "claude-voice",
-  "version": "1.0.6",
+  "version": "1.2.0",
   "description": "Voice interface extension for Claude Code - TTS, STT, and wake word detection",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -46,11 +46,10 @@
     "inquirer": "^8.2.7",
     "openai": "^4.20.0",
     "ora": "^5.4.1",
-    "sherpa-onnx-node": "^1.12.20"
+    "sherpa-onnx-node": "^1.12.20",
+    "node-global-key-listener": "^0.3.0"
   },
   "optionalDependencies": {
-    "@picovoice/porcupine-node": "^4.0.1",
-    "@picovoice/pvrecorder-node": "^1.2.8",
     "sherpa-onnx-darwin-arm64": "^1.12.20",
     "sherpa-onnx-darwin-x64": "^1.12.20",
     "sherpa-onnx-linux-x64": "^1.12.20",
@@ -75,6 +74,7 @@
     "hooks/**/*",
     "config/**/*",
     "scripts/**/*",
+    "plugin/**/*",
     "models/.gitkeep",
     "python/**/*",
     "README.md",

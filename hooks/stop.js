@@ -28,7 +28,7 @@ function loadConfig() {
   return {
     tts: {
       autoSpeak: true,
-      maxSpeechLength: 500,
+      maxSpeechLength: 1500,
       skipCodeBlocks: true
     }
   };
@@ -108,41 +108,79 @@ async function extractLastResponse(transcriptPath) {
   return lastAssistantMessage;
 }
 
-// Extract abstract portion if marker is present
+// Extract text for TTS - remove marker but keep all content
 function extractAbstract(text, config) {
   const marker = config.voiceOutput?.abstractMarker || '<!-- TTS -->';
 
-  if (text.includes(marker)) {
-    // Extract text before the marker (the spoken abstract)
-    const abstract = text.split(marker)[0].trim();
-    return abstract || null;
-  }
-
-  return null;
+  // Remove the marker but speak everything
+  const cleaned = text.replace(marker, '').trim();
+  return cleaned || null;
 }
 
 // Clean text for TTS (remove markdown, code, etc.)
 function cleanForTTS(text) {
   let cleaned = text;
 
-  // Remove code blocks
+  // Remove code blocks (fenced)
   cleaned = cleaned.replace(/```[\s\S]*?```/g, '');
+
+  // Remove code blocks (indented - 4 spaces or tab)
+  cleaned = cleaned.replace(/^(?:    |\t).+$/gm, '');
 
   // Remove inline code
   cleaned = cleaned.replace(/`[^`]+`/g, '');
 
-  // Remove markdown formatting
-  cleaned = cleaned.replace(/[*_~]/g, '');
+  // Remove images before links (![alt](url))
+  cleaned = cleaned.replace(/!\[[^\]]*\]\([^)]+\)/g, '');
+
+  // Convert links to just text ([text](url) -> text)
+  cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+  // Remove reference-style links [text][ref] and definitions [ref]: url
+  cleaned = cleaned.replace(/\[[^\]]+\]\[[^\]]*\]/g, '');
+  cleaned = cleaned.replace(/^\[[^\]]+\]:.*$/gm, '');
+
+  // Remove HTML tags
+  cleaned = cleaned.replace(/<[^>]+>/g, '');
+
+  // Remove markdown headers (# ## ### etc) - keep the text
+  cleaned = cleaned.replace(/^#{1,6}\s+/gm, '');
+
+  // Remove blockquotes (>) - keep the text
+  cleaned = cleaned.replace(/^>\s*/gm, '');
+
+  // Remove horizontal rules
+  cleaned = cleaned.replace(/^[-*_]{3,}\s*$/gm, '');
+
+  // Remove table formatting
+  cleaned = cleaned.replace(/^\|.*\|$/gm, ''); // Table rows
+  cleaned = cleaned.replace(/^[-:|]+$/gm, '');  // Table separators
+
+  // Remove bullet points (- * +) at start of lines - keep the text
+  cleaned = cleaned.replace(/^[\s]*[-*+]\s+/gm, '');
+
+  // Remove numbered lists (1. 2. etc) - keep the text
+  cleaned = cleaned.replace(/^[\s]*\d+\.\s+/gm, '');
+
+  // Remove bold/italic/strikethrough markers
+  cleaned = cleaned.replace(/[*_~]{1,3}/g, '');
 
   // Remove URLs
   cleaned = cleaned.replace(/https?:\/\/\S+/g, '');
 
-  // Remove file paths
-  cleaned = cleaned.replace(/\/[a-zA-Z0-9_\-./]+/g, '');
+  // Remove file paths (be less aggressive)
+  cleaned = cleaned.replace(/(?:^|\s)(\/[\w\-./]+)/g, ' ');
 
-  // Collapse multiple newlines
+  // Collapse multiple spaces
+  cleaned = cleaned.replace(/  +/g, ' ');
+
+  // Collapse multiple newlines to periods
   cleaned = cleaned.replace(/\n{2,}/g, '. ');
   cleaned = cleaned.replace(/\n/g, ' ');
+
+  // Clean up multiple periods
+  cleaned = cleaned.replace(/\.{2,}/g, '.');
+  cleaned = cleaned.replace(/\.\s*\./g, '.');
 
   // Trim whitespace
   cleaned = cleaned.trim();
@@ -162,34 +200,10 @@ function summarizeForSpeech(text, config) {
     }
   }
 
-  // Fallback: use existing logic for responses without abstract marker
-  let cleaned = text;
-  const maxLength = config.voiceOutput?.maxAbstractLength || config.tts?.maxSpeechLength || 500;
-  const skipCodeBlocks = config.tts?.skipCodeBlocks !== false;
+  // Fallback: clean and truncate the full response
+  const maxLength = config.voiceOutput?.maxAbstractLength || config.tts?.maxSpeechLength || 1500;
 
-  // Remove code blocks if configured
-  if (skipCodeBlocks) {
-    cleaned = cleaned.replace(/```[\s\S]*?```/g, '');
-  }
-
-  // Remove inline code
-  cleaned = cleaned.replace(/`[^`]+`/g, '');
-
-  // Remove markdown formatting
-  cleaned = cleaned.replace(/[*_~]/g, '');
-
-  // Remove URLs
-  cleaned = cleaned.replace(/https?:\/\/\S+/g, '');
-
-  // Remove file paths
-  cleaned = cleaned.replace(/\/[a-zA-Z0-9_\-./]+/g, '');
-
-  // Collapse multiple newlines
-  cleaned = cleaned.replace(/\n{2,}/g, '. ');
-  cleaned = cleaned.replace(/\n/g, ' ');
-
-  // Trim whitespace
-  cleaned = cleaned.trim();
+  let cleaned = cleanForTTS(text);
 
   // Truncate to max length
   if (cleaned.length > maxLength) {

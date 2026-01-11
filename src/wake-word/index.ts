@@ -1,7 +1,9 @@
 import { EventEmitter } from 'events';
 import { spawn } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
 import { WakeWordConfig, RecordingConfig } from '../config';
-import { AudioRecorder } from './recorder';
 import { getPlatformCapabilities } from '../platform';
 
 // Play system sounds (cross-platform)
@@ -12,40 +14,38 @@ function playSound(soundName: string): void {
     const soundPath = `/System/Library/Sounds/${soundName}.aiff`;
     spawn('afplay', [soundPath], { stdio: 'ignore' });
   } else if (caps.platform === 'linux' && caps.audioPlayer) {
-    // Try freedesktop sounds on Linux
     const linuxSounds: Record<string, string> = {
-      'Ping': '/usr/share/sounds/freedesktop/stereo/message.oga',
-      'Pop': '/usr/share/sounds/freedesktop/stereo/complete.oga',
+      Ping: '/usr/share/sounds/freedesktop/stereo/message.oga',
+      Pop: '/usr/share/sounds/freedesktop/stereo/complete.oga',
     };
     const soundPath = linuxSounds[soundName];
     if (soundPath) {
       spawn(caps.audioPlayer, [soundPath], { stdio: 'ignore' });
     }
   }
-  // Silently skip if no audio player available
 }
 
-// Porcupine types (will be dynamically imported)
-interface PorcupineInstance {
-  process(frame: Int16Array): number;
-  release?(): void;  // v4.x uses release()
-  delete?(): void;   // older versions use delete()
-  frameLength: number;
-  sampleRate: number;
-}
-
-interface PorcupineModule {
-  create(accessKey: string, keywords: string[], sensitivities: number[]): Promise<PorcupineInstance>;
-  BuiltinKeywords: Record<string, string>;
-}
+// Model info for keyword spotting
+const KWS_MODEL = {
+  id: 'kws-zipformer-gigaspeech',
+  name: 'Keyword Spotter (English)',
+  folder: 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01',
+  url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2',
+  size: '19 MB',
+};
 
 export class WakeWordDetector extends EventEmitter {
   private config: WakeWordConfig;
   private recordingConfig: RecordingConfig;
-  private porcupine: PorcupineInstance | null = null;
-  private recorder: AudioRecorder | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private kws: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private stream: any = null;
   private isListening = false;
   private isRecordingCommand = false;
+  private recordingProcess: ReturnType<typeof spawn> | null = null;
+  private audioBuffer: Buffer[] = [];
+  private silenceStartTime: number | null = null;
 
   constructor(wakeWordConfig: WakeWordConfig, recordingConfig: RecordingConfig) {
     super();
@@ -54,58 +54,87 @@ export class WakeWordDetector extends EventEmitter {
   }
 
   async initialize(): Promise<void> {
-    const accessKey = process.env.PICOVOICE_ACCESS_KEY;
+    const modelsDir = path.join(os.homedir(), '.claude-voice', 'models');
+    const modelPath = path.join(modelsDir, KWS_MODEL.folder);
 
-    if (!accessKey) {
+    // Check if model is downloaded
+    if (!fs.existsSync(modelPath)) {
       console.warn(
-        'PICOVOICE_ACCESS_KEY not set. Wake word detection will be disabled.',
-        'Get a free key at https://picovoice.ai/'
+        `Keyword spotting model not found. Download it with:\n  claude-voice model download ${KWS_MODEL.id}`
       );
+      console.log('Wake word detection will be disabled until model is installed.');
       return;
     }
 
+    // Get keywords file
+    const keywordsFile = this.getKeywordsFile(modelPath);
+
     try {
-      // Dynamic import for Porcupine
+      // Dynamic import for sherpa-onnx
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const porcupineModule = await import('@picovoice/porcupine-node') as any;
-      const Porcupine = porcupineModule.Porcupine;
-      const BuiltinKeyword = porcupineModule.BuiltinKeyword;
+      const sherpaOnnx = (await import('sherpa-onnx-node')) as any;
 
-      // Use custom Jarvis wake word model
-      const path = await import('path');
-      const fs = await import('fs');
+      // Configure keyword spotter using the correct API
+      const kwsConfig = {
+        featConfig: {
+          sampleRate: this.recordingConfig.sampleRate,
+          featureDim: 80,
+        },
+        modelConfig: {
+          transducer: {
+            encoder: path.join(modelPath, 'encoder-epoch-12-avg-2-chunk-16-left-64.onnx'),
+            decoder: path.join(modelPath, 'decoder-epoch-12-avg-2-chunk-16-left-64.onnx'),
+            joiner: path.join(modelPath, 'joiner-epoch-12-avg-2-chunk-16-left-64.onnx'),
+          },
+          tokens: path.join(modelPath, 'tokens.txt'),
+          numThreads: 1,
+          provider: 'cpu',
+          debug: 0,
+        },
+        keywordsFile: keywordsFile,
+      };
 
-      const customModelPath = path.join(__dirname, '..', '..', 'models', 'jarvis.ppn');
+      this.kws = new sherpaOnnx.KeywordSpotter(kwsConfig);
+      this.stream = this.kws.createStream();
 
-      let keywords: string[];
-      if (fs.existsSync(customModelPath)) {
-        // Use custom Jarvis model
-        keywords = [customModelPath];
-        console.log('Using custom Jarvis wake word model');
-      } else {
-        // Fallback to built-in JARVIS
-        keywords = [BuiltinKeyword.JARVIS];
-        console.log('Using built-in Jarvis keyword');
-      }
-
-      // Porcupine uses constructor, not .create()
-      this.porcupine = new Porcupine(accessKey, keywords, [this.config.sensitivity]);
-
-      this.recorder = new AudioRecorder({
-        sampleRate: this.porcupine!.sampleRate,
-        frameLength: this.porcupine!.frameLength,
-        channels: this.recordingConfig.channels,
-      });
-
-      console.log('Wake word detector initialized');
+      console.log(`Wake word detector initialized (keyword: "${this.config.keyword}")`);
     } catch (error) {
-      console.error('Failed to initialize Porcupine:', error);
+      console.error('Failed to initialize Sherpa-ONNX keyword spotter:', error);
       throw error;
     }
   }
 
+  /**
+   * Get keywords file path
+   * Reads keyword tokens from config and writes active keyword to file
+   * Supports multiple spelling variations per keyword for better detection
+   */
+  private getKeywordsFile(modelPath: string): string {
+    const keyword = this.config.keyword.toLowerCase();
+    const keywords = this.config.keywords || {};
+
+    const tokenData = keywords[keyword];
+    if (!tokenData) {
+      console.warn(`Keyword "${keyword}" not found in config.`);
+      console.warn(`Available keywords: ${Object.keys(keywords).join(', ')}`);
+      // Fallback to model's default keywords
+      return path.join(modelPath, 'keywords.txt');
+    }
+
+    // Handle both string and array formats
+    const lines = Array.isArray(tokenData) ? tokenData : [tokenData];
+
+    // Write active keyword variations to file
+    const configDir = path.join(os.homedir(), '.claude-voice');
+    const activeFile = path.join(configDir, 'active-keyword.txt');
+    fs.writeFileSync(activeFile, lines.join('\n') + '\n');
+
+    console.log(`Wake word: "${keyword}" (${lines.length} variations)`);
+    return activeFile;
+  }
+
   async start(): Promise<void> {
-    if (!this.porcupine || !this.recorder) {
+    if (!this.kws || !this.stream) {
       console.warn('Wake word detector not initialized');
       return;
     }
@@ -115,87 +144,193 @@ export class WakeWordDetector extends EventEmitter {
     }
 
     this.isListening = true;
-
-    this.recorder.on('frame', (frame: Int16Array) => {
-      if (!this.isListening || !this.porcupine || this.isRecordingCommand) {
-        return;
-      }
-
-      const keywordIndex = this.porcupine.process(frame);
-
-      if (keywordIndex >= 0) {
-        // Play "listening" sound
-        playSound('Ping');
-        this.emit('wakeword', keywordIndex);
-        this.startCommandRecording();
-      }
-    });
-
-    await this.recorder.start();
+    this.startAudioCapture();
     this.emit('started');
   }
 
-  private async startCommandRecording(): Promise<void> {
-    if (!this.recorder || this.isRecordingCommand) {
+  private startAudioCapture(): void {
+    const caps = getPlatformCapabilities();
+    const sampleRate = this.recordingConfig.sampleRate;
+
+    // Check for required audio capture tools
+    const { execSync } = require('child_process');
+
+    // Use sox on macOS, arecord on Linux
+    if (caps.platform === 'darwin') {
+      // Check if sox is installed
+      try {
+        execSync('which rec', { stdio: 'ignore' });
+      } catch {
+        console.error('');
+        console.error('  Wake word detection requires sox for audio capture.');
+        console.error('  Install it with: brew install sox');
+        console.error('');
+        return;
+      }
+
+      // Use sox (rec command) for audio capture
+      this.recordingProcess = spawn(
+        'rec',
+        [
+          '-q', // Quiet mode
+          '-t',
+          'raw', // Raw audio format
+          '-b',
+          '16', // 16-bit
+          '-e',
+          'signed-integer',
+          '-c',
+          '1', // Mono
+          '-r',
+          String(sampleRate),
+          '-', // Output to stdout
+        ],
+        { stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+    } else if (caps.platform === 'linux') {
+      // Check if arecord is installed
+      try {
+        execSync('which arecord', { stdio: 'ignore' });
+      } catch {
+        console.error('');
+        console.error('  Wake word detection requires alsa-utils for audio capture.');
+        console.error('  Install it with: sudo apt install alsa-utils');
+        console.error('');
+        return;
+      }
+
+      // Use arecord for audio capture
+      this.recordingProcess = spawn(
+        'arecord',
+        ['-q', '-f', 'S16_LE', '-c', '1', '-r', String(sampleRate), '-t', 'raw', '-'],
+        { stdio: ['ignore', 'pipe', 'ignore'] }
+      );
+    } else {
+      console.error('Audio capture not supported on this platform');
+      return;
+    }
+
+    if (!this.recordingProcess.stdout) {
+      console.error('Failed to start audio capture');
+      return;
+    }
+
+    this.recordingProcess.stdout.on('data', (data: Buffer) => {
+      if (!this.isListening || !this.kws || !this.stream) {
+        return;
+      }
+
+      if (this.isRecordingCommand) {
+        // Collecting audio for command transcription
+        this.audioBuffer.push(data);
+        this.checkSilenceAndFinish(data);
+      } else {
+        // Process audio for keyword detection
+        this.processAudioForKeyword(data);
+      }
+    });
+
+    this.recordingProcess.on('error', (err) => {
+      console.error('Audio capture error:', err);
+    });
+  }
+
+  private processAudioForKeyword(data: Buffer): void {
+    if (!this.kws || !this.stream) return;
+
+    // Convert Int16 buffer to Float32Array
+    const samples = this.bufferToFloat32(data);
+
+    // Feed audio to the stream
+    this.stream.acceptWaveform({
+      sampleRate: this.recordingConfig.sampleRate,
+      samples: samples,
+    });
+
+    // Check for keyword detection
+    while (this.kws.isReady(this.stream)) {
+      this.kws.decode(this.stream);
+    }
+
+    const result = this.kws.getResult(this.stream);
+    if (result.keyword && result.keyword.trim() !== '') {
+      console.log(`Wake word detected: "${result.keyword}"`);
+
+      // Play "listening" sound
+      if (this.config.playSound) {
+        playSound('Ping');
+      }
+
+      // Start recording the command
+      this.emit('wakeword', 0);
+      this.startCommandRecording();
+    }
+  }
+
+  private bufferToFloat32(buffer: Buffer): Float32Array {
+    const samples = new Float32Array(buffer.length / 2);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = buffer.readInt16LE(i * 2) / 32768.0;
+    }
+    return samples;
+  }
+
+  private startCommandRecording(): void {
+    if (this.isRecordingCommand) {
       return;
     }
 
     this.isRecordingCommand = true;
+    this.audioBuffer = [];
+    this.silenceStartTime = null;
     this.emit('listening');
+  }
 
-    const audioChunks: Buffer[] = [];
-    let silenceStart: number | null = null;
+  private checkSilenceAndFinish(data: Buffer): void {
+    const amplitude = this.calculateAmplitude(data);
     const silenceThreshold = this.recordingConfig.silenceThreshold;
-    const maxDuration = this.recordingConfig.maxDuration;
-    const startTime = Date.now();
+    const silenceAmplitude = this.recordingConfig.silenceAmplitude || 500;
 
-    const recordingHandler = (frame: Int16Array) => {
-      // Convert Int16Array to Buffer
-      const buffer = Buffer.from(frame.buffer);
-      audioChunks.push(buffer);
-
-      // Simple silence detection based on amplitude
-      const amplitude = this.calculateAmplitude(frame);
-
-      if (amplitude < 500) {
-        // Low amplitude threshold
-        if (!silenceStart) {
-          silenceStart = Date.now();
-        } else if (Date.now() - silenceStart > silenceThreshold) {
-          // End of speech detected
-          this.finishRecording(audioChunks);
-          this.recorder?.off('frame', recordingHandler);
-          return;
-        }
-      } else {
-        silenceStart = null;
+    if (amplitude < silenceAmplitude) {
+      if (!this.silenceStartTime) {
+        this.silenceStartTime = Date.now();
+      } else if (Date.now() - this.silenceStartTime > silenceThreshold) {
+        // End of speech detected
+        this.finishRecording();
+        return;
       }
-
-      // Max duration check
-      if (Date.now() - startTime > maxDuration) {
-        this.finishRecording(audioChunks);
-        this.recorder?.off('frame', recordingHandler);
-      }
-    };
-
-    this.recorder.on('frame', recordingHandler);
-  }
-
-  private calculateAmplitude(frame: Int16Array): number {
-    let sum = 0;
-    for (let i = 0; i < frame.length; i++) {
-      sum += Math.abs(frame[i]);
+    } else {
+      this.silenceStartTime = null;
     }
-    return sum / frame.length;
+
+    // Max duration check
+    const totalDuration =
+      (this.audioBuffer.reduce((sum, b) => sum + b.length, 0) / 2 / this.recordingConfig.sampleRate) * 1000;
+    if (totalDuration > this.recordingConfig.maxDuration) {
+      this.finishRecording();
+    }
   }
 
-  private finishRecording(chunks: Buffer[]): void {
+  private calculateAmplitude(buffer: Buffer): number {
+    let sum = 0;
+    const samples = buffer.length / 2;
+    for (let i = 0; i < samples; i++) {
+      sum += Math.abs(buffer.readInt16LE(i * 2));
+    }
+    return sum / samples;
+  }
+
+  private finishRecording(): void {
     this.isRecordingCommand = false;
+    this.silenceStartTime = null;
 
     // Play "done" sound
-    playSound('Pop');
+    if (this.config.playSound) {
+      playSound('Pop');
+    }
 
-    const audioBuffer = Buffer.concat(chunks);
+    const audioBuffer = Buffer.concat(this.audioBuffer);
+    this.audioBuffer = [];
     this.emit('command', audioBuffer);
   }
 
@@ -203,8 +338,9 @@ export class WakeWordDetector extends EventEmitter {
     this.isListening = false;
     this.isRecordingCommand = false;
 
-    if (this.recorder) {
-      this.recorder.stop();
+    if (this.recordingProcess) {
+      this.recordingProcess.kill();
+      this.recordingProcess = null;
     }
 
     this.emit('stopped');
@@ -213,16 +349,65 @@ export class WakeWordDetector extends EventEmitter {
   cleanup(): void {
     this.stop();
 
-    if (this.porcupine) {
-      // Porcupine v4.x uses release(), older versions use delete()
-      if (typeof this.porcupine.release === 'function') {
-        this.porcupine.release();
-      } else if (typeof this.porcupine.delete === 'function') {
-        this.porcupine.delete();
+    if (this.stream) {
+      try {
+        this.stream.free();
+      } catch {
+        // Ignore cleanup errors
       }
-      this.porcupine = null;
+      this.stream = null;
     }
 
-    this.recorder = null;
+    if (this.kws) {
+      try {
+        this.kws.free();
+      } catch {
+        // Ignore cleanup errors
+      }
+      this.kws = null;
+    }
   }
+
+  /**
+   * Get the model info for downloading
+   */
+  static getModelInfo() {
+    return KWS_MODEL;
+  }
+}
+
+/**
+ * Download the keyword spotting model
+ */
+export async function downloadKwsModel(): Promise<void> {
+  const { execSync } = await import('child_process');
+  const modelsDir = path.join(os.homedir(), '.claude-voice', 'models');
+  const modelPath = path.join(modelsDir, KWS_MODEL.folder);
+
+  if (fs.existsSync(modelPath)) {
+    console.log('Keyword spotting model already installed.');
+    return;
+  }
+
+  // Create models directory
+  if (!fs.existsSync(modelsDir)) {
+    fs.mkdirSync(modelsDir, { recursive: true });
+  }
+
+  console.log(`Downloading ${KWS_MODEL.name} (${KWS_MODEL.size})...`);
+
+  const tarPath = path.join(modelsDir, 'kws-model.tar.bz2');
+
+  // Download using curl
+  execSync(`curl -L -o "${tarPath}" "${KWS_MODEL.url}"`, { stdio: 'inherit' });
+
+  // Extract
+  console.log('Extracting model...');
+  execSync(`tar -xjf "${tarPath}" -C "${modelsDir}"`, { stdio: 'inherit' });
+
+  // Clean up
+  fs.unlinkSync(tarPath);
+
+  console.log('Keyword spotting model installed successfully!');
+  console.log('Wake word tokens are configured in ~/.claude-voice/config.json');
 }

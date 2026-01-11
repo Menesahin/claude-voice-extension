@@ -52,18 +52,28 @@ export const SHERPA_MODELS = {
     url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2',
     folder: 'sherpa-onnx-whisper-tiny',
     languages: ['en', 'tr', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'ru', 'zh', 'ja', 'ko'],
+    type: 'stt',
   },
   'whisper-base': {
     name: 'Whisper Base (142MB)',
     url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2',
     folder: 'sherpa-onnx-whisper-base',
     languages: ['en', 'tr', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'ru', 'zh', 'ja', 'ko'],
+    type: 'stt',
   },
   'whisper-small': {
     name: 'Whisper Small (488MB)',
     url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-small.tar.bz2',
     folder: 'sherpa-onnx-whisper-small',
     languages: ['en', 'tr', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'ru', 'zh', 'ja', 'ko'],
+    type: 'stt',
+  },
+  'kws-zipformer-gigaspeech': {
+    name: 'Keyword Spotter English (19MB) - For wake word detection',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2',
+    folder: 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01',
+    languages: ['en'],
+    type: 'kws',
   },
 };
 

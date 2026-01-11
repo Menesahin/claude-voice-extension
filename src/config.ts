@@ -52,10 +52,10 @@ export interface STTConfig {
 // Wake Word Configuration
 export interface WakeWordConfig {
   enabled: boolean;
-  keyword: 'jarvis' | 'alexa' | 'computer' | 'custom';
-  customKeywordPath?: string;
+  keyword: string;
   sensitivity: number;
   playSound: boolean;
+  keywords: Record<string, string | string[]>;
 }
 
 // Notifications Configuration
@@ -126,6 +126,13 @@ export interface ServerConfig {
   host: string;
 }
 
+// Shortcut Configuration
+export interface ShortcutConfig {
+  enabled: boolean;
+  key: string;
+  description?: string;
+}
+
 // Main Configuration Interface
 export interface Config {
   version: number;
@@ -135,6 +142,7 @@ export interface Config {
   notifications: NotificationsConfig;
   voiceOutput: VoiceOutputConfig;
   toolTTS: ToolTTSConfig;
+  shortcut: ShortcutConfig;
   terminal: TerminalConfig;
   recording: RecordingConfig;
   server: ServerConfig;

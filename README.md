@@ -4,10 +4,11 @@ Voice interface extension for Claude Code - enables speech-to-text input, text-t
 
 ## Features
 
-- **Voice Input (STT)**: Speak commands to Claude using wake word or push-to-talk
+- **Voice Input (STT)**: Speak commands to Claude using wake word or keyboard shortcut
 - **Voice Output (TTS)**: Claude's responses are spoken aloud
 - **Voice-Friendly Formatting**: Claude structures responses with TTS-optimized abstracts
 - **Wake Word**: Say "Jarvis" to start speaking a command
+- **Keyboard Shortcut**: Press Cmd+Shift+Space (or Ctrl+Shift+Space) for reliable voice input
 - **Voice Notifications**: Audio alerts for permission prompts and idle states
 - **Multiple Providers**: Supports local and cloud-based speech services
 
@@ -103,6 +104,8 @@ claude-voice config edit
 | `wakeWord.keyword` | string | `jarvis` | Wake word keyword |
 | `wakeWord.sensitivity` | number | `0.5` | Wake word sensitivity (0.0-1.0) |
 | `wakeWord.playSound` | boolean | `true` | Play sound when wake word detected |
+| `shortcut.enabled` | boolean | `true` | Enable keyboard shortcut for voice input |
+| `shortcut.key` | string | `CommandOrControl+Shift+Space` | Keyboard shortcut to trigger recording |
 | `notifications.enabled` | boolean | `true` | Enable voice notifications |
 | `notifications.permissionPrompt` | boolean | `true` | Speak permission prompts |
 | `notifications.idlePrompt` | boolean | `true` | Speak idle prompts |
@@ -215,19 +218,60 @@ claude-voice config set stt.whisperLocal.model=base
 
 ## Wake Word Detection
 
-Wake word detection uses Picovoice Porcupine. Get a free API key at [picovoice.ai](https://picovoice.ai/).
+Wake word detection uses Sherpa-ONNX keyword spotting - **completely FREE and offline**! No API key required.
 
 ```bash
-# Set API key
-export PICOVOICE_ACCESS_KEY="your-key"
-# Or save to .env
-echo "PICOVOICE_ACCESS_KEY=your-key" >> ~/.claude-voice/.env
+# Download the keyword spotting model (19MB)
+claude-voice model download kws-zipformer-gigaspeech
 
 # Enable wake word
 claude-voice config set wakeWord.enabled=true
 
+# Set custom keyword (default: "jarvis")
+claude-voice config set wakeWord.keyword=jarvis
+
 # Adjust sensitivity (0.0-1.0, higher = more sensitive)
-claude-voice config set wakeWord.sensitivity=0.6
+claude-voice config set wakeWord.sensitivity=0.5
+```
+
+**Note:** On macOS, `sox` is auto-installed via Homebrew during setup. If needed manually:
+```bash
+brew install sox
+```
+
+## Keyboard Shortcut
+
+For more reliable voice input, use the keyboard shortcut instead of (or alongside) wake word detection.
+
+**Default Shortcut:**
+- **macOS**: `Cmd + Shift + Space`
+- **Linux**: `Ctrl + Shift + Space`
+
+```bash
+# Enable/disable shortcut
+claude-voice config set shortcut.enabled=true
+
+# Change the shortcut key
+claude-voice config set shortcut.key="CommandOrControl+Shift+V"
+```
+
+### Available Modifiers
+- `CommandOrControl` - Cmd on macOS, Ctrl on Linux/Windows
+- `Command` or `Meta` - Cmd key (macOS only)
+- `Control` or `Ctrl` - Control key
+- `Shift` - Shift key
+- `Alt` or `Option` - Alt/Option key
+
+### Example Shortcuts
+```bash
+# Ctrl+Shift+Space (all platforms)
+claude-voice config set shortcut.key="Control+Shift+Space"
+
+# Cmd+Space (macOS only)
+claude-voice config set shortcut.key="Command+Space"
+
+# Alt+V
+claude-voice config set shortcut.key="Alt+V"
 ```
 
 ## Voice Output Formatting
@@ -398,9 +442,10 @@ The daemon exposes an HTTP API on port 3456:
 |----------|---------|
 | `OPENAI_API_KEY` | OpenAI TTS and Whisper API |
 | `ELEVENLABS_API_KEY` | ElevenLabs TTS |
-| `PICOVOICE_ACCESS_KEY` | Wake word detection |
 
 Store in `~/.claude-voice/.env` or export in your shell.
+
+**Note:** Wake word detection no longer requires an API key - it uses the free Sherpa-ONNX keyword spotting model.
 
 ## License
 

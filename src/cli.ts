@@ -57,6 +57,21 @@ function checkDaemon(): Promise<boolean> {
   });
 }
 
+/**
+ * Wait for daemon to be ready with polling and retries.
+ * Better than fixed timeout - returns as soon as daemon is ready.
+ */
+async function waitForDaemon(maxWaitMs = 10000, intervalMs = 300): Promise<boolean> {
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWaitMs) {
+    if (await checkDaemon()) {
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
+}
+
 function savePid(pid: number): void {
   const dir = path.dirname(PID_FILE);
   if (!fs.existsSync(dir)) {
@@ -224,10 +239,11 @@ program
         savePid(child.pid);
         child.unref();
 
-        // Wait a moment and check if it started
-        await new Promise((r) => setTimeout(r, 1500));
+        // Wait for daemon to be ready (polling with retries)
+        console.log('Waiting for daemon to be ready...');
+        const ready = await waitForDaemon(10000); // Up to 10 seconds
 
-        if (await checkDaemon()) {
+        if (ready) {
           console.log('Daemon started successfully.');
           console.log(`PID: ${child.pid}`);
           console.log(`Logs: ${LOG_FILE}`);
@@ -322,13 +338,16 @@ program
       savePid(child.pid);
       child.unref();
 
-      await new Promise((r) => setTimeout(r, 1500));
+      // Wait for daemon to be ready (polling with retries)
+      console.log('Waiting for daemon to be ready...');
+      const ready = await waitForDaemon(10000);
 
-      if (await checkDaemon()) {
+      if (ready) {
         console.log('Daemon restarted successfully.');
         console.log(`PID: ${child.pid}`);
       } else {
-        console.error('Daemon failed to start. Check logs.');
+        console.error('Daemon failed to start. Check logs:');
+        console.error(`  tail -f ${LOG_FILE}`);
         deletePid();
         process.exit(1);
       }
@@ -767,6 +786,55 @@ program
   });
 
 // ============================================================================
+// Plugin Commands
+// ============================================================================
+
+const pluginCommand = program.command('plugin').description('Manage Claude Code plugin');
+
+// Import shared plugin module
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pluginModule = require('../scripts/install-plugin');
+
+pluginCommand
+  .command('install')
+  .description('Install Claude Code plugin (voice-control skill)')
+  .action(() => {
+    try {
+      const pluginPath = pluginModule.installPlugin(path.join(__dirname, '..'));
+      console.log('Plugin installed successfully!');
+      console.log(`Plugin path: ${pluginPath}`);
+    } catch (error) {
+      console.error('Failed to install plugin:', error);
+    }
+  });
+
+pluginCommand
+  .command('uninstall')
+  .description('Remove Claude Code plugin')
+  .action(() => {
+    if (pluginModule.uninstallPlugin()) {
+      console.log('Plugin uninstalled successfully!');
+    } else {
+      console.log('No plugin found to uninstall.');
+    }
+  });
+
+pluginCommand
+  .command('status')
+  .description('Check plugin installation status')
+  .action(() => {
+    const pluginPath = pluginModule.getPluginPath();
+
+    if (pluginModule.isPluginInstalled()) {
+      console.log('Status: Installed');
+      console.log(`Path: ${pluginPath}`);
+    } else {
+      console.log('Status: Not installed');
+      console.log('Run: claude-voice plugin install');
+    }
+  });
+
+// ============================================================================
 // Config Commands
 // ============================================================================
 
@@ -986,16 +1054,52 @@ program
   .description('List available audio input devices')
   .action(async () => {
     console.log('\nAudio Input Devices:\n');
+
+    const platform = process.platform;
+
     try {
-      // Try to use PvRecorder to list devices
-      const pvRecorderModule = await import('@picovoice/pvrecorder-node');
-      const devices = pvRecorderModule.PvRecorder.getAvailableDevices();
-      devices.forEach((device: string, index: number) => {
-        console.log(`  [${index}] ${device}`);
-      });
+      if (platform === 'darwin') {
+        // macOS: Use system_profiler to list audio devices
+        const output = execSync('system_profiler SPAudioDataType 2>/dev/null', { encoding: 'utf-8' });
+        const lines = output.split('\n');
+        let deviceIndex = 0;
+
+        for (const line of lines) {
+          // Look for device names (indented lines with colons)
+          if (line.includes('Input Source:') || line.includes('Default Input Device:')) {
+            const match = line.match(/:\s*(.+)$/);
+            if (match) {
+              console.log(`  [${deviceIndex}] ${match[1].trim()}`);
+              deviceIndex++;
+            }
+          }
+        }
+
+        if (deviceIndex === 0) {
+          // Fallback: just show default device info
+          console.log('  [0] Built-in Microphone (default)');
+        }
+      } else if (platform === 'linux') {
+        // Linux: Use arecord -l
+        const output = execSync('arecord -l 2>/dev/null', { encoding: 'utf-8' });
+        const lines = output.split('\n').filter((l) => l.startsWith('card'));
+
+        if (lines.length > 0) {
+          lines.forEach((line, index) => {
+            console.log(`  [${index}] ${line}`);
+          });
+        } else {
+          console.log('  No audio input devices found.');
+          console.log('  Make sure ALSA is installed: sudo apt install alsa-utils');
+        }
+      } else {
+        console.log('  Device listing not supported on this platform.');
+      }
     } catch {
       console.log('  Unable to list audio devices.');
-      console.log('  Install @picovoice/pvrecorder-node for device listing.');
+      if (platform === 'linux') {
+        console.log('  Install ALSA utils: sudo apt install alsa-utils');
+      }
     }
     console.log('');
   });
