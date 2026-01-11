@@ -151,9 +151,36 @@ function isToolError(toolResult) {
 const toolSummarizers = {
   Read: (input, result) => {
     const fileName = input.file_path ? path.basename(input.file_path) : 'file';
-    const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
-    const lineCount = (resultStr.match(/\n/g) || []).length + 1;
-    return `Read ${lineCount} lines from ${fileName}.`;
+    const ext = path.extname(fileName).toLowerCase();
+
+    const typeMap = {
+      '.ts': 'TypeScript',
+      '.tsx': 'TypeScript React',
+      '.js': 'JavaScript',
+      '.jsx': 'JavaScript React',
+      '.json': 'JSON',
+      '.md': 'Markdown',
+      '.py': 'Python',
+      '.rs': 'Rust',
+      '.go': 'Go',
+      '.java': 'Java',
+      '.c': 'C',
+      '.cpp': 'C++',
+      '.h': 'header',
+      '.css': 'CSS',
+      '.scss': 'SCSS',
+      '.html': 'HTML',
+      '.yaml': 'YAML',
+      '.yml': 'YAML',
+      '.toml': 'TOML',
+      '.sh': 'shell',
+      '.sql': 'SQL',
+      '.vue': 'Vue',
+      '.svelte': 'Svelte'
+    };
+
+    const fileType = typeMap[ext] || 'file';
+    return `Read ${fileType} file ${fileName}.`;
   },
 
   Grep: (input, result) => {
