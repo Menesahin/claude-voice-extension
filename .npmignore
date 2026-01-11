@@ -1,0 +1,23 @@
+# Source files (compiled to dist/)
+src/
+
+# Source maps (optional, remove for smaller package)
+dist/**/*.map
+
+# Development files
+.DS_Store
+.claude/
+*.log
+.env
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+
+# Build config
+tsconfig.json
+
+# Unneeded directories
+tetris/
+venv/
+.piper-venv/

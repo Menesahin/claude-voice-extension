@@ -1,0 +1,12 @@
+# STT - Whisper
+openai-whisper>=20231117
+openai>=1.3.0
+
+# Audio processing
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+scipy>=1.10.0
+
+# HTTP server for Python STT service
+flask>=3.0.0

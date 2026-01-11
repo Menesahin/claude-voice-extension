@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tetris</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-wrapper">
+            <div class="canvas-container">
+                <canvas id="game-canvas"></canvas>
+                <div id="overlay" class="overlay">
+                    <h2 id="overlay-title">TETRIS</h2>
+                    <p id="overlay-message">Press START to play</p>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="panel">
+                    <h3>Score</h3>
+                    <div id="score" class="stat-value">0</div>
+                </div>
+
+                <div class="panel">
+                    <h3>Level</h3>
+                    <div id="level" class="stat-value">0</div>
+                </div>
+
+                <div class="panel">
+                    <h3>Lines</h3>
+                    <div id="lines" class="stat-value">0</div>
+                </div>
+
+                <button id="start-btn" class="start-btn">START</button>
+
+                <div class="controls">
+                    <h3>Controls</h3>
+                    <ul>
+                        <li><kbd>&larr;</kbd> <kbd>&rarr;</kbd> Move</li>
+                        <li><kbd>&darr;</kbd> Soft Drop</li>
+                        <li><kbd>&uarr;</kbd> / <kbd>X</kbd> Rotate CW</li>
+                        <li><kbd>Z</kbd> Rotate CCW</li>
+                        <li><kbd>Space</kbd> Hard Drop</li>
+                        <li><kbd>P</kbd> Pause</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

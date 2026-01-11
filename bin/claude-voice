@@ -1,0 +1,29 @@
+#!/bin/bash
+# Claude Voice Extension - CLI wrapper
+# Sets up library paths for sherpa-onnx native bindings
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Detect platform and set library path
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64)
+    PLATFORM_PKG="sherpa-onnx-darwin-arm64"
+    export DYLD_LIBRARY_PATH="$ROOT_DIR/node_modules/$PLATFORM_PKG:$DYLD_LIBRARY_PATH"
+    ;;
+  Darwin-x86_64)
+    PLATFORM_PKG="sherpa-onnx-darwin-x64"
+    export DYLD_LIBRARY_PATH="$ROOT_DIR/node_modules/$PLATFORM_PKG:$DYLD_LIBRARY_PATH"
+    ;;
+  Linux-x86_64)
+    PLATFORM_PKG="sherpa-onnx-linux-x64"
+    export LD_LIBRARY_PATH="$ROOT_DIR/node_modules/$PLATFORM_PKG:$LD_LIBRARY_PATH"
+    ;;
+  Linux-aarch64)
+    PLATFORM_PKG="sherpa-onnx-linux-arm64"
+    export LD_LIBRARY_PATH="$ROOT_DIR/node_modules/$PLATFORM_PKG:$LD_LIBRARY_PATH"
+    ;;
+esac
+
+# Run the CLI
+exec node "$ROOT_DIR/dist/cli.js" "$@"

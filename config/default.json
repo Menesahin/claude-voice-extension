@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "tts": {
+    "provider": "macos-say",
+    "autoSpeak": false,
+    "maxSpeechLength": 500,
+    "skipCodeBlocks": true,
+    "macos": {
+      "voice": "Samantha",
+      "rate": 200
+    },
+    "openai": {
+      "model": "tts-1",
+      "voice": "nova",
+      "speed": 1.0
+    },
+    "elevenlabs": {
+      "voiceId": "",
+      "modelId": "eleven_monolingual_v1",
+      "stability": 0.5,
+      "similarityBoost": 0.75
+    },
+    "espeak": {
+      "voice": "en",
+      "speed": 175,
+      "pitch": 50
+    },
+    "piper": {
+      "voice": "en_US-lessac-medium",
+      "speaker": 0
+    }
+  },
+  "stt": {
+    "provider": "openai",
+    "language": "en",
+    "sherpaOnnx": {
+      "model": "whisper-tiny"
+    },
+    "whisperLocal": {
+      "model": "base",
+      "device": "cpu"
+    },
+    "openai": {
+      "model": "whisper-1"
+    }
+  },
+  "wakeWord": {
+    "enabled": true,
+    "keyword": "jarvis",
+    "sensitivity": 0.5,
+    "playSound": true
+  },
+  "notifications": {
+    "enabled": true,
+    "permissionPrompt": true,
+    "idlePrompt": true,
+    "errors": false,
+    "customMessages": {
+      "permissionPrompt": "Claude needs your permission.",
+      "idlePrompt": "Claude is waiting for your input."
+    }
+  },
+  "voiceOutput": {
+    "enabled": false,
+    "abstractMarker": "<!-- TTS -->",
+    "maxAbstractLength": 200,
+    "promptTemplate": null
+  },
+  "toolTTS": {
+    "enabled": true,
+    "mode": "summarize",
+    "tools": {
+      "Read": true,
+      "Grep": true,
+      "Glob": false,
+      "Bash": true,
+      "Write": true,
+      "Edit": true,
+      "MultiEdit": true,
+      "WebFetch": false,
+      "WebSearch": false,
+      "Task": false,
+      "default": false
+    },
+    "customMessages": {
+      "completion": "Done.",
+      "error": "Operation failed."
+    },
+    "announceErrors": true,
+    "maxSummaryLength": 100
+  },
+  "terminal": {
+    "injectionMethod": "auto",
+    "targetTerminal": "auto",
+    "pressEnterAfterInput": true
+  },
+  "recording": {
+    "sampleRate": 16000,
+    "channels": 1,
+    "silenceThreshold": 2000,
+    "silenceAmplitude": 500,
+    "maxDuration": 30000
+  },
+  "server": {
+    "port": 3456,
+    "host": "127.0.0.1"
+  },
+  "debug": false
+}
