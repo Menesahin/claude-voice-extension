@@ -29,7 +29,7 @@ console.log('║          Claude Voice Extension - Auto Setup               ║'
 console.log('╚════════════════════════════════════════════════════════════╝\n');
 
 // 1. Create config directory
-console.log('Step 1/8: Setting up configuration...');
+console.log('Step 1/7: Setting up configuration...');
 if (!fs.existsSync(CONFIG_DIR)) {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
   console.log('  [✓] Created config directory');
@@ -69,7 +69,7 @@ try {
 }
 
 // 4. Install Claude Code hooks
-console.log('\nStep 2/8: Installing Claude Code hooks...');
+console.log('\nStep 2/7: Installing Claude Code hooks...');
 try {
   const settingsFile = installHooks(HOOKS_DIR);
   console.log('  [✓] Hooks installed');
@@ -79,7 +79,7 @@ try {
 }
 
 // 5. Install Claude Code plugin (skill)
-console.log('\nStep 3/8: Installing Claude Code plugin...');
+console.log('\nStep 3/7: Installing Claude Code plugin...');
 try {
   const pluginPath = installPlugin(path.join(__dirname, '..'));
   console.log('  [✓] Plugin installed');
@@ -90,7 +90,7 @@ try {
 
 // 6. Install Piper TTS and download default voice
 const binPath = path.join(__dirname, '..', 'bin', 'claude-voice');
-console.log('\nStep 4/8: Installing Piper TTS engine...');
+console.log('\nStep 4/7: Installing Piper TTS engine...');
 console.log('  (First-time install may take 1-2 minutes)\n');
 try {
   execSync(`"${binPath}" voice download en_US-joe-medium`, {
@@ -103,7 +103,7 @@ try {
 }
 
 // 7. Download whisper-tiny STT model
-console.log('\nStep 5/8: Downloading Whisper STT model...');
+console.log('\nStep 5/7: Downloading Whisper STT model...');
 console.log('  (This may take 2-3 minutes depending on connection)\n');
 try {
   execSync(`"${binPath}" model download whisper-tiny`, {
@@ -128,8 +128,8 @@ try {
   console.log('      Run manually: claude-voice model download kws-zipformer-gigaspeech');
 }
 
-// 9. Install sox for audio capture (wake word)
-console.log('\nStep 7/7: Installing audio capture tools...');
+// 9. Install platform-specific audio tools
+console.log('\nStep 7/7: Checking audio tools...');
 const platform = os.platform();
 
 function checkCommand(cmd) {
@@ -141,13 +141,11 @@ function checkCommand(cmd) {
   }
 }
 
-if (checkCommand('rec')) {
-  console.log('  [✓] sox already installed');
-} else {
-  console.log('  [!] sox not found, attempting to install...');
-
-  if (platform === 'darwin') {
-    // macOS - try Homebrew
+if (platform === 'darwin') {
+  // macOS - need sox for audio capture
+  if (checkCommand('rec')) {
+    console.log('  [✓] sox installed');
+  } else {
     if (checkCommand('brew')) {
       try {
         console.log('  Installing sox via Homebrew...');
@@ -158,28 +156,63 @@ if (checkCommand('rec')) {
         console.log('      Run manually: brew install sox');
       }
     } else {
-      console.log('  [!] Homebrew not found');
-      console.log('      Install sox manually: brew install sox');
-      console.log('      Or install Homebrew first: https://brew.sh');
+      console.log('  [!] sox not found. Install with: brew install sox');
     }
-  } else if (platform === 'linux') {
-    // Linux - requires sudo, so just show instructions
-    console.log('  [!] Please install sox manually:');
-    console.log('      Ubuntu/Debian: sudo apt install sox');
-    console.log('      Fedora: sudo dnf install sox');
-    console.log('      Arch: sudo pacman -S sox');
+  }
+  console.log('  [✓] Audio playback: afplay (native)');
+} else if (platform === 'linux') {
+  // Linux - check all required tools
+  console.log('  Checking Linux dependencies...\n');
+
+  // Check sox for audio capture
+  if (checkCommand('rec')) {
+    console.log('  [✓] sox installed');
+  } else {
+    console.log('  [!] sox not found');
+    console.log('      Install: sudo apt install sox');
+  }
+
+  // Check alsa-utils for arecord (alternative audio capture)
+  if (checkCommand('arecord')) {
+    console.log('  [✓] alsa-utils installed (arecord)');
+  } else {
+    console.log('  [!] alsa-utils not found');
+    console.log('      Install: sudo apt install alsa-utils');
+  }
+
+  // Check audio playback
+  if (checkCommand('aplay') || checkCommand('paplay') || checkCommand('ffplay')) {
+    console.log('  [✓] Audio playback available');
+  } else {
+    console.log('  [!] No audio player found');
+    console.log('      Install one: sudo apt install alsa-utils  OR  sudo apt install ffmpeg');
+  }
+
+  // Check xdotool for terminal injection
+  if (checkCommand('xdotool')) {
+    console.log('  [✓] xdotool installed (terminal injection)');
+  } else {
+    console.log('  [!] xdotool not found (required for voice commands)');
+    console.log('      Install: sudo apt install xdotool');
   }
 }
 
 // 10. Show platform info and completion
 console.log('\nFinalizing setup...');
-console.log(`  [✓] Platform: ${platform}`);
+console.log(`  Platform: ${platform}`);
 
 if (platform === 'darwin') {
-  console.log('  [✓] Audio: macOS native (afplay)');
+  console.log('  [✓] macOS: All features supported');
 } else if (platform === 'linux') {
-  console.log('  [✓] Audio: Linux (aplay/paplay/ffplay)');
-  console.log('  [i] Note: Install xdotool for terminal injection: sudo apt install xdotool');
+  const missingDeps = [];
+  if (!checkCommand('rec') && !checkCommand('arecord')) missingDeps.push('sox or alsa-utils');
+  if (!checkCommand('xdotool')) missingDeps.push('xdotool');
+
+  if (missingDeps.length === 0) {
+    console.log('  [✓] Linux: All features supported');
+  } else {
+    console.log('  [!] Linux: Missing dependencies: ' + missingDeps.join(', '));
+  }
 }
 
 // 11. Show next steps
