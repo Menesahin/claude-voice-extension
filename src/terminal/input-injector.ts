@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, execSync } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
@@ -21,7 +21,19 @@ export interface InputInjectorOptions {
 }
 
 /**
- * Injects text into the terminal using AppleScript on macOS.
+ * Check if a command exists in PATH
+ */
+function hasCommand(cmd: string): boolean {
+  try {
+    execSync(`which ${cmd}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Injects text into the terminal using AppleScript on macOS or xdotool on Linux.
  * This allows voice-transcribed text to be sent to Claude Code.
  */
 export class TerminalInputInjector {
@@ -40,8 +52,12 @@ export class TerminalInputInjector {
    * Types text into the active terminal window
    */
   async type(text: string, pressEnter = true): Promise<void> {
+    if (process.platform === 'linux') {
+      return this.typeLinux(text, pressEnter);
+    }
+
     if (process.platform !== 'darwin') {
-      throw new Error('Terminal input injection is only supported on macOS');
+      throw new Error('Terminal input injection is only supported on macOS and Linux');
     }
 
     // Escape special characters for AppleScript
@@ -92,8 +108,17 @@ export class TerminalInputInjector {
    * Simulates pressing a key
    */
   async pressKey(key: string): Promise<void> {
+    if (process.platform === 'linux') {
+      // Use xdotool for Linux
+      if (!hasCommand('xdotool')) {
+        throw new Error('xdotool not found. Install with: sudo apt install xdotool');
+      }
+      await execAsync(`xdotool key ${key}`);
+      return;
+    }
+
     if (process.platform !== 'darwin') {
-      throw new Error('Key press simulation is only supported on macOS');
+      throw new Error('Key press simulation is only supported on macOS and Linux');
     }
 
     const keyCode = this.getKeyCode(key);
@@ -138,6 +163,38 @@ delay 0.1
 tell application "System Events"
 keystroke "${text}"
 end tell`;
+  }
+
+  /**
+   * Types text into the active terminal using xdotool on Linux
+   */
+  private async typeLinux(text: string, pressEnter: boolean): Promise<void> {
+    // Check for xdotool
+    if (!hasCommand('xdotool')) {
+      throw new Error(
+        'xdotool not found. Install it with: sudo apt install xdotool\n' +
+        'Note: xdotool works with X11. For Wayland, use ydotool.'
+      );
+    }
+
+    // Escape special characters for shell
+    const escapedText = text
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/`/g, '\\`')
+      .replace(/\$/g, '\\$');
+
+    try {
+      // Type the text using xdotool
+      await execAsync(`xdotool type --clearmodifiers "${escapedText}"`);
+
+      // Press Enter if requested
+      if (pressEnter) {
+        await execAsync('xdotool key Return');
+      }
+    } catch (error) {
+      throw new Error(`Failed to inject text via xdotool: ${error}`);
+    }
   }
 
   private escapeForAppleScript(text: string): string {

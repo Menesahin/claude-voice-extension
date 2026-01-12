@@ -64,11 +64,6 @@
     },
     "picovoice": {
       "accessKey": ""
-    },
-    "openwakeword": {
-      "model": "hey_jarvis",
-      "threshold": 0.5,
-      "debug": false
     }
   },
   "notifications": {

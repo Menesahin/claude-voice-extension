@@ -1,3 +1,0 @@
-# openWakeWord dependencies for Claude Voice Extension
-openwakeword>=0.5.0
-numpy>=1.20.0
