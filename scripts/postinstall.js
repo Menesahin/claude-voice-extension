@@ -25,6 +25,17 @@ const DEFAULT_CONFIG = path.join(__dirname, '..', 'config', 'default.json');
 const HOOKS_DIR = path.join(__dirname, '..', 'hooks');
 const MODELS_DIR = path.join(CONFIG_DIR, 'models');
 const VOICES_DIR = path.join(CONFIG_DIR, 'voices');
+const platform = os.platform();
+
+// Helper function to check if a command exists
+function checkCommand(cmd) {
+  try {
+    execSync(`which ${cmd}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 console.log('\n╔════════════════════════════════════════════════════════════╗');
 console.log('║          Claude Voice Extension - Auto Setup               ║');
@@ -210,10 +221,22 @@ try {
     });
 
     console.log('  [2/2] Extracting model files...');
+
+    // Check if bzip2 is available on Linux
+    if (platform === 'linux' && !checkCommand('bzip2')) {
+      console.log('  [!] bzip2 not found. Install: sudo apt install bzip2');
+      throw new Error('bzip2 required for extraction');
+    }
+
     execSync(`tar -xjf "${archivePath}"`, {
-      stdio: 'pipe',
+      stdio: 'inherit',
       cwd: MODELS_DIR
     });
+
+    // Verify extraction succeeded
+    if (!fs.existsSync(modelPath)) {
+      throw new Error('Extraction failed - folder not created');
+    }
 
     // Cleanup archive
     fs.unlinkSync(archivePath);
@@ -221,7 +244,8 @@ try {
   }
 } catch (err) {
   console.log('  [!] Could not download STT model:', err.message);
-  console.log('      Run manually: claude-voice model download whisper-tiny');
+  console.log('      On Linux, install bzip2: sudo apt install bzip2');
+  console.log('      Then run: claude-voice model download whisper-tiny');
 }
 
 // 8. Download Sherpa-ONNX keyword spotting model for wake word
@@ -252,10 +276,22 @@ try {
     });
 
     console.log('  [2/2] Extracting model files...');
+
+    // Check if bzip2 is available on Linux
+    if (platform === 'linux' && !checkCommand('bzip2')) {
+      console.log('  [!] bzip2 not found. Install: sudo apt install bzip2');
+      throw new Error('bzip2 required for extraction');
+    }
+
     execSync(`tar -xjf "${archivePath}"`, {
-      stdio: 'pipe',
+      stdio: 'inherit',
       cwd: MODELS_DIR
     });
+
+    // Verify extraction succeeded
+    if (!fs.existsSync(kwsModelPath)) {
+      throw new Error('Extraction failed - folder not created');
+    }
 
     // Cleanup archive
     fs.unlinkSync(archivePath);
@@ -263,19 +299,20 @@ try {
   }
 } catch (err) {
   console.log('  [!] Could not download wake word model:', err.message);
-  console.log('      Run manually: claude-voice model download kws-zipformer-gigaspeech');
+  console.log('      On Linux, install bzip2: sudo apt install bzip2');
+  console.log('      Then run: claude-voice model download kws-zipformer-gigaspeech');
 }
 
 // 9. Install platform-specific audio tools
 console.log('\nStep 7/7: Checking audio tools...');
-const platform = os.platform();
 
-function checkCommand(cmd) {
-  try {
-    execSync(`which ${cmd}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
+// Check bzip2 for model extraction (Linux)
+if (platform === 'linux') {
+  if (checkCommand('bzip2')) {
+    console.log('  [✓] bzip2 installed (for model extraction)');
+  } else {
+    console.log('  [!] bzip2 not found (required for model extraction)');
+    console.log('      Install: sudo apt install bzip2');
   }
 }
 
