@@ -338,10 +338,19 @@ async function main() {
     return;
   }
 
-  // Read hook input from stdin
+  // Read hook input from stdin with timeout
   let input = '';
-  for await (const chunk of process.stdin) {
-    input += chunk;
+  const stdinTimeout = setTimeout(() => {
+    console.log(JSON.stringify({}));
+    process.exit(0);
+  }, 5000);
+
+  try {
+    for await (const chunk of process.stdin) {
+      input += chunk;
+    }
+  } finally {
+    clearTimeout(stdinTimeout);
   }
 
   let hookData;

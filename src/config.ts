@@ -52,13 +52,18 @@ export interface STTConfig {
 // Wake Word Configuration
 export interface WakeWordConfig {
   enabled: boolean;
-  provider: 'sherpa-onnx' | 'picovoice';
+  provider: 'sherpa-onnx' | 'picovoice' | 'openwakeword';
   keyword: string;
   sensitivity: number;
   playSound: boolean;
   keywords: Record<string, string | string[]>;
   picovoice?: {
     accessKey?: string;
+  };
+  openwakeword?: {
+    model?: string;
+    threshold?: number;
+    debug?: boolean;
   };
 }
 

@@ -2,25 +2,7 @@ import { EventEmitter } from 'events';
 import { spawn } from 'child_process';
 import { WakeWordConfig, RecordingConfig } from '../config';
 import { getPlatformCapabilities } from '../platform';
-
-// Play system sounds (cross-platform)
-function playSound(soundName: string): void {
-  const caps = getPlatformCapabilities();
-
-  if (caps.platform === 'darwin') {
-    const soundPath = `/System/Library/Sounds/${soundName}.aiff`;
-    spawn('afplay', [soundPath], { stdio: 'ignore' });
-  } else if (caps.platform === 'linux' && caps.audioPlayer) {
-    const linuxSounds: Record<string, string> = {
-      Ping: '/usr/share/sounds/freedesktop/stereo/message.oga',
-      Pop: '/usr/share/sounds/freedesktop/stereo/complete.oga',
-    };
-    const soundPath = linuxSounds[soundName];
-    if (soundPath) {
-      spawn(caps.audioPlayer, [soundPath], { stdio: 'ignore' });
-    }
-  }
-}
+import { playSound } from '../utils/audio';
 
 // Built-in Porcupine keywords
 const BUILTIN_KEYWORDS: Record<string, string> = {

@@ -1,30 +1,14 @@
 import { EventEmitter } from 'events';
-import { spawn } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { WakeWordConfig, RecordingConfig } from '../config';
 import { getPlatformCapabilities } from '../platform';
 import { PicovoiceDetector } from './picovoice-detector';
-
-// Play system sounds (cross-platform)
-function playSound(soundName: string): void {
-  const caps = getPlatformCapabilities();
-
-  if (caps.platform === 'darwin') {
-    const soundPath = `/System/Library/Sounds/${soundName}.aiff`;
-    spawn('afplay', [soundPath], { stdio: 'ignore' });
-  } else if (caps.platform === 'linux' && caps.audioPlayer) {
-    const linuxSounds: Record<string, string> = {
-      Ping: '/usr/share/sounds/freedesktop/stereo/message.oga',
-      Pop: '/usr/share/sounds/freedesktop/stereo/complete.oga',
-    };
-    const soundPath = linuxSounds[soundName];
-    if (soundPath) {
-      spawn(caps.audioPlayer, [soundPath], { stdio: 'ignore' });
-    }
-  }
-}
+import { OpenWakeWordDetector, isOpenWakeWordInstalled } from './openwakeword-detector';
+import { playSound } from '../utils/audio';
+import { calculateAmplitude, bufferToFloat32 } from '../utils/silence';
 
 // Model info for keyword spotting
 const KWS_MODEL = {
@@ -57,6 +41,15 @@ export function createWakeWordDetector(
   if (provider === 'picovoice') {
     console.log('Using Picovoice wake word detection');
     return new PicovoiceDetector(config, recordingConfig);
+  }
+
+  if (provider === 'openwakeword') {
+    if (isOpenWakeWordInstalled()) {
+      console.log('Using openWakeWord detection');
+      return new OpenWakeWordDetector(config, recordingConfig);
+    } else {
+      console.log('openWakeWord not installed, falling back to Sherpa-ONNX');
+    }
   }
 
   console.log('Using Sherpa-ONNX wake word detection');
@@ -271,7 +264,7 @@ export class SherpaOnnxDetector extends EventEmitter implements IWakeWordDetecto
     if (!this.kws || !this.stream) return;
 
     // Convert Int16 buffer to Float32Array
-    const samples = this.bufferToFloat32(data);
+    const samples = bufferToFloat32(data);
 
     // Feed audio to the stream
     this.stream.acceptWaveform({
@@ -299,14 +292,6 @@ export class SherpaOnnxDetector extends EventEmitter implements IWakeWordDetecto
     }
   }
 
-  private bufferToFloat32(buffer: Buffer): Float32Array {
-    const samples = new Float32Array(buffer.length / 2);
-    for (let i = 0; i < samples.length; i++) {
-      samples[i] = buffer.readInt16LE(i * 2) / 32768.0;
-    }
-    return samples;
-  }
-
   private startCommandRecording(): void {
     if (this.isRecordingCommand) {
       return;
@@ -319,7 +304,7 @@ export class SherpaOnnxDetector extends EventEmitter implements IWakeWordDetecto
   }
 
   private checkSilenceAndFinish(data: Buffer): void {
-    const amplitude = this.calculateAmplitude(data);
+    const amplitude = calculateAmplitude(data);
     const silenceThreshold = this.recordingConfig.silenceThreshold;
     const silenceAmplitude = this.recordingConfig.silenceAmplitude || 500;
 
@@ -341,15 +326,6 @@ export class SherpaOnnxDetector extends EventEmitter implements IWakeWordDetecto
     if (totalDuration > this.recordingConfig.maxDuration) {
       this.finishRecording();
     }
-  }
-
-  private calculateAmplitude(buffer: Buffer): number {
-    let sum = 0;
-    const samples = buffer.length / 2;
-    for (let i = 0; i < samples; i++) {
-      sum += Math.abs(buffer.readInt16LE(i * 2));
-    }
-    return sum / samples;
   }
 
   private finishRecording(): void {

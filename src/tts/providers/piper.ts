@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { TTSProvider } from '../index';
+import { createTempAudioPath, safeDeleteFile } from '../../utils/audio';
 import { getPlatformCapabilities } from '../../platform';
 
 const PIPER_DIR = path.join(os.homedir(), '.claude-voice', 'piper');
@@ -86,6 +87,7 @@ export const PIPER_VOICES: Record<
 export interface PiperConfig {
   voice: string;
   speaker?: number;
+  lengthScale?: number;  // Speed: 0.5-2.0, lower = faster (default: 1.0)
 }
 
 export class PiperProvider implements TTSProvider {
@@ -126,13 +128,17 @@ export class PiperProvider implements TTSProvider {
 
     const voicePath = path.join(VOICES_DIR, `${this.config.voice}.onnx`);
     const platform = os.platform();
-    const tempFile = path.join(os.tmpdir(), `piper-${Date.now()}.wav`);
+    const tempFile = createTempAudioPath('piper');
 
     // Build piper command
     const piperArgs = ['--model', voicePath, '--output_file', tempFile];
 
     if (this.config.speaker !== undefined) {
       piperArgs.push('--speaker', String(this.config.speaker));
+    }
+
+    if (this.config.lengthScale !== undefined) {
+      piperArgs.push('--length_scale', String(this.config.lengthScale));
     }
 
     return new Promise((resolve, reject) => {
@@ -176,12 +182,7 @@ export class PiperProvider implements TTSProvider {
 
         player.on('close', (playerCode) => {
           this.currentProcess = null;
-          // Clean up temp file
-          try {
-            fs.unlinkSync(tempFile);
-          } catch {
-            // Ignore cleanup errors
-          }
+          safeDeleteFile(tempFile);
 
           if (playerCode === 0 || playerCode === null) {
             resolve();
@@ -192,11 +193,7 @@ export class PiperProvider implements TTSProvider {
 
         player.on('error', (error) => {
           this.currentProcess = null;
-          try {
-            fs.unlinkSync(tempFile);
-          } catch {
-            // Ignore cleanup errors
-          }
+          safeDeleteFile(tempFile);
           reject(error);
         });
       });

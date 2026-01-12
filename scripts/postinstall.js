@@ -115,8 +115,8 @@ try {
   console.log('      Run manually: claude-voice model download whisper-tiny');
 }
 
-// 8. Download keyword spotting model for wake word (FREE!)
-console.log('\nStep 6/8: Downloading Wake Word model...');
+// 8. Download Sherpa-ONNX keyword spotting model for wake word
+console.log('\nStep 6/7: Downloading Sherpa-ONNX Wake Word model...');
 console.log('  (Sherpa-ONNX keyword spotting - ~19MB)\n');
 try {
   execSync(`"${binPath}" model download kws-zipformer-gigaspeech`, {
@@ -129,7 +129,7 @@ try {
 }
 
 // 9. Install sox for audio capture (wake word)
-console.log('\nStep 7/8: Installing audio capture tools...');
+console.log('\nStep 7/7: Installing audio capture tools...');
 const platform = os.platform();
 
 function checkCommand(cmd) {
@@ -172,7 +172,7 @@ if (checkCommand('rec')) {
 }
 
 // 10. Show platform info and completion
-console.log('\nStep 8/8: Finalizing setup...');
+console.log('\nFinalizing setup...');
 console.log(`  [✓] Platform: ${platform}`);
 
 if (platform === 'darwin') {
@@ -182,7 +182,7 @@ if (platform === 'darwin') {
   console.log('  [i] Note: Install xdotool for terminal injection: sudo apt install xdotool');
 }
 
-// 8. Show next steps
+// 11. Show next steps
 console.log('\n╔════════════════════════════════════════════════════════════╗');
 console.log('║                    Setup Complete!                         ║');
 console.log('╚════════════════════════════════════════════════════════════╝\n');

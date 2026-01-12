@@ -6,9 +6,50 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+// Maximum sizes for request bodies
+const MAX_JSON_SIZE = '1mb';
+const MAX_AUDIO_SIZE = '50mb';
+const MAX_TEXT_LENGTH = 10000;
+
 const app = express();
-app.use(express.json());
-app.use(express.raw({ type: 'audio/*', limit: '50mb' }));
+app.use(express.json({ limit: MAX_JSON_SIZE }));
+app.use(express.raw({ type: 'audio/*', limit: MAX_AUDIO_SIZE }));
+
+/**
+ * Validate file path to prevent path traversal attacks
+ * Only allows paths within temp directory or home directory
+ */
+function isValidAudioPath(audioPath: string): boolean {
+  if (!audioPath || typeof audioPath !== 'string') {
+    return false;
+  }
+
+  const normalizedPath = path.normalize(audioPath);
+  const tempDir = os.tmpdir();
+  const homeDir = os.homedir();
+
+  // Path must be within temp or home directory
+  const isInTemp = normalizedPath.startsWith(tempDir);
+  const isInHome = normalizedPath.startsWith(homeDir);
+
+  if (!isInTemp && !isInHome) {
+    return false;
+  }
+
+  // Check for path traversal sequences
+  if (normalizedPath.includes('..')) {
+    return false;
+  }
+
+  // Validate file extension
+  const ext = path.extname(normalizedPath).toLowerCase();
+  const validExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.flac', '.webm'];
+  if (!validExtensions.includes(ext)) {
+    return false;
+  }
+
+  return true;
+}
 
 let ttsManager: TTSManager;
 let sttManager: STTManager;
@@ -48,6 +89,12 @@ app.post('/tts', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
+    // Validate text length
+    if (text.length > MAX_TEXT_LENGTH) {
+      res.status(400).json({ error: `Text exceeds maximum length of ${MAX_TEXT_LENGTH} characters` });
+      return;
+    }
+
     await ttsManager.speak(text, priority === 'high');
     res.json({ success: true, message: 'Speech queued' });
   } catch (error) {
@@ -68,8 +115,19 @@ app.post('/stt', async (req: Request, res: Response, next: NextFunction) => {
       fs.writeFileSync(audioPath, req.body);
       shouldCleanup = true;
     } else if (req.body.audioPath) {
-      // Handle file path
+      // Handle file path - validate to prevent path traversal
       audioPath = req.body.audioPath;
+
+      if (!isValidAudioPath(audioPath)) {
+        res.status(400).json({ error: 'Invalid audio file path' });
+        return;
+      }
+
+      // Verify file exists
+      if (!fs.existsSync(audioPath)) {
+        res.status(404).json({ error: 'Audio file not found' });
+        return;
+      }
     } else {
       res.status(400).json({ error: 'Missing audio data or audioPath' });
       return;
@@ -78,7 +136,11 @@ app.post('/stt', async (req: Request, res: Response, next: NextFunction) => {
     const transcript = await sttManager.transcribe(audioPath);
 
     if (shouldCleanup) {
-      fs.unlinkSync(audioPath);
+      try {
+        fs.unlinkSync(audioPath);
+      } catch {
+        // Ignore cleanup errors
+      }
     }
 
     res.json({ success: true, transcript });

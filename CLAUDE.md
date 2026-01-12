@@ -100,6 +100,7 @@ stt.language          # en (ISO code)
 stt.sherpaOnnx.model  # whisper-tiny | whisper-base | whisper-small
 
 wakeWord.enabled      # true
+wakeWord.provider     # sherpa-onnx | picovoice | openwakeword
 wakeWord.keyword      # jarvis
 wakeWord.sensitivity  # 0.5 (0.0-1.0)
 wakeWord.playSound    # true - play Ping/Pop sounds
