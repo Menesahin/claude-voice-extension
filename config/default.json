@@ -112,9 +112,9 @@
     "maxSummaryLength": 100
   },
   "shortcut": {
-    "enabled": true,
+    "enabled": false,
     "key": "CommandOrControl+Shift+Space",
-    "description": "Press to start voice recording (more reliable than wake word)"
+    "description": "Press to start voice recording (requires X11 on Linux)"
   },
   "terminal": {
     "injectionMethod": "auto",

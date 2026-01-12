@@ -111,10 +111,19 @@ async function initializeWakeWord(config: ReturnType<typeof loadConfig>): Promis
 
 async function initializeShortcut(config: ReturnType<typeof loadConfig>): Promise<void> {
   try {
+    // On Linux, check if X11 DISPLAY is available
+    if (process.platform === 'linux' && !process.env.DISPLAY) {
+      console.warn('Keyboard shortcut disabled: No X11 DISPLAY found (Wayland not supported)');
+      return;
+    }
+
     // Dynamic import for node-global-key-listener
     const { GlobalKeyboardListener } = await import('node-global-key-listener');
 
     keyListener = new GlobalKeyboardListener();
+
+    // Wait a bit for the listener to initialize (catches async X11 errors)
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Parse the shortcut key configuration
     const shortcutKey = config.shortcut.key;
