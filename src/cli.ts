@@ -22,7 +22,7 @@ import {
 import { TTSManager } from './tts';
 import { STTManager } from './stt';
 import { loadEnvVars, checkApiKeys, getEnvFilePath } from './env';
-import { getPlatformCapabilities, getInstallInstructions, getPlatformSummary } from './platform';
+import { getPlatformCapabilities, getInstallInstructions, getPlatformSummary, detectMissingTools } from './platform';
 import { downloadModel, listModels, SHERPA_MODELS } from './stt/providers/sherpa-onnx';
 import {
   downloadVoice,
@@ -419,14 +419,36 @@ program
     const config = loadConfig();
     const caps = getPlatformCapabilities();
 
+    // Step 0: System Requirements Check (Linux and macOS)
+    if (caps.platform === 'linux' || caps.platform === 'darwin') {
+      console.log(chalk.bold('  Step 0: System Requirements\n'));
+
+      const { tools: missingTools, commands: installCommands } = detectMissingTools();
+
+      if (missingTools.length === 0) {
+        console.log(chalk.green('  ✓ All required system tools are installed\n'));
+      } else {
+        console.log(chalk.yellow(`  ⚠ Missing: ${missingTools.join(', ')}\n`));
+        console.log('  Install with:');
+        installCommands.forEach(cmd => console.log(chalk.cyan(`    ${cmd}`)));
+        console.log('');
+
+        if (caps.isWayland) {
+          console.log(chalk.dim('  Note: Wayland detected. Terminal injection requires dotool or ydotool.\n'));
+          console.log(chalk.dim('  dotool is recommended (simpler, no daemon needed).\n'));
+        }
+      }
+    }
+
     // Step 1: Platform detection
     console.log(chalk.bold('  Step 1: Platform Detection\n'));
-    console.log(`  Platform: ${caps.platform}`);
+    console.log(`  Platform: ${caps.platform}${caps.isWayland ? ' (Wayland)' : caps.platform === 'linux' ? ' (X11)' : ''}`);
     console.log(`  Native TTS: ${caps.nativeTTS ? caps.nativeTTSCommand : 'not available'}`);
     console.log(`  Terminal Injection: ${caps.terminalInjection}\n`);
 
     const instructions = getInstallInstructions();
-    if (instructions.length > 0) {
+    if (instructions.length > 0 && caps.platform !== 'linux') {
+      // Linux instructions are shown in Step 0
       console.log(chalk.yellow('  Missing dependencies:'));
       instructions.forEach((i) => console.log(`    - ${i}`));
       console.log('');
@@ -634,9 +656,23 @@ program
     spinner = ora('Checking platform...').start();
     const caps = getPlatformCapabilities();
     if (caps.platform !== 'unsupported') {
-      spinner.succeed(`Platform: ${caps.platform}`);
+      const displayInfo = caps.isWayland ? ' (Wayland)' : caps.platform === 'linux' ? ' (X11)' : '';
+      spinner.succeed(`Platform: ${caps.platform}${displayInfo}`);
     } else {
       spinner.warn(`Platform: ${process.platform} (not fully supported)`);
+    }
+
+    // Check system tools (Linux and macOS)
+    if (caps.platform === 'linux' || caps.platform === 'darwin') {
+      spinner = ora('Checking system tools...').start();
+      const { tools: missingTools, commands: installCommands } = detectMissingTools();
+      if (missingTools.length === 0) {
+        spinner.succeed('System tools: all installed');
+      } else {
+        spinner.warn(`System tools: missing ${missingTools.join(', ')}`);
+        console.log(chalk.dim('    Install with:'));
+        installCommands.forEach(cmd => console.log(chalk.dim(`      ${cmd}`)));
+      }
     }
 
     // Check native TTS
@@ -652,7 +688,11 @@ program
     if (caps.terminalInjection !== 'none') {
       spinner.succeed(`Terminal injection: ${caps.terminalInjection}`);
     } else {
-      spinner.warn('Terminal injection: not available');
+      if (caps.isWayland) {
+        spinner.warn('Terminal injection: not available (install dotool or ydotool)');
+      } else {
+        spinner.warn('Terminal injection: not available (install xdotool)');
+      }
     }
 
     // Check config

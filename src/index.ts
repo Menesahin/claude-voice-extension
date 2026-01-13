@@ -81,6 +81,18 @@ async function initializeWakeWord(config: ReturnType<typeof loadConfig>): Promis
           if (transcript && transcript.trim()) {
             console.log(`Transcribed: "${transcript}"`);
 
+            // Check for stop command
+            const lower = transcript.toLowerCase().trim();
+            if (lower === 'stop talking' || lower === 'stop' || lower.includes('stop talking')) {
+              console.log('Stop command detected - stopping TTS');
+              try {
+                await fetch('http://127.0.0.1:3456/tts/stop', { method: 'POST' });
+              } catch (e) {
+                console.error('Failed to stop TTS:', e);
+              }
+              return; // Don't send to terminal
+            }
+
             // Send to Claude Code
             await sendToClaudeCode(transcript);
           }

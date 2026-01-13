@@ -5,7 +5,23 @@
 import { spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as path from 'path';
 import { getPlatformCapabilities } from '../platform';
+
+/**
+ * Get the path to bundled sound files
+ */
+function getBundledSoundPath(soundName: string): string | null {
+  // Sound files are in sounds/ directory relative to package root
+  // From dist/utils/audio.js -> ../../sounds/
+  const soundsDir = path.join(__dirname, '..', '..', 'sounds');
+  const soundFile = path.join(soundsDir, `${soundName.toLowerCase()}.wav`);
+
+  if (fs.existsSync(soundFile)) {
+    return soundFile;
+  }
+  return null;
+}
 
 /**
  * Play a system sound (cross-platform)
@@ -13,18 +29,23 @@ import { getPlatformCapabilities } from '../platform';
  */
 export function playSound(soundName: string): void {
   const caps = getPlatformCapabilities();
+  const bundledSound = getBundledSoundPath(soundName);
 
   if (caps.platform === 'darwin') {
-    const soundPath = `/System/Library/Sounds/${soundName}.aiff`;
-    spawn('afplay', [soundPath], { stdio: 'ignore' });
-  } else if (caps.platform === 'linux' && caps.audioPlayer) {
-    const linuxSounds: Record<string, string> = {
-      Ping: '/usr/share/sounds/freedesktop/stereo/message.oga',
-      Pop: '/usr/share/sounds/freedesktop/stereo/complete.oga',
-    };
-    const soundPath = linuxSounds[soundName];
-    if (soundPath) {
-      spawn(caps.audioPlayer, [soundPath], { stdio: 'ignore' });
+    // macOS: Try system sound first, then bundled
+    const systemSound = `/System/Library/Sounds/${soundName}.aiff`;
+    if (fs.existsSync(systemSound)) {
+      spawn('afplay', [systemSound], { stdio: 'ignore' });
+    } else if (bundledSound) {
+      spawn('afplay', [bundledSound], { stdio: 'ignore' });
+    }
+  } else if (caps.platform === 'linux') {
+    // Linux: Use bundled WAV files (works with all audio players)
+    if (bundledSound && caps.audioPlayer) {
+      spawn(caps.audioPlayer, [bundledSound], { stdio: 'ignore' });
+    } else {
+      // Fallback: terminal bell
+      process.stdout.write('\x07');
     }
   }
 }

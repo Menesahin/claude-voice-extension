@@ -1,452 +1,400 @@
 # Claude Voice Extension
 
-Voice interface extension for Claude Code - enables speech-to-text input, text-to-speech output, and wake word detection.
+[![npm version](https://img.shields.io/npm/v/claude-voice)](https://www.npmjs.com/package/claude-voice)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js](https://img.shields.io/node/v/claude-voice)](https://nodejs.org)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue)]()
 
-## Features
+Voice interface for Claude Code CLI. Speak commands, hear responses.
 
-- **Voice Input (STT)**: Speak commands to Claude using wake word or keyboard shortcut
-- **Voice Output (TTS)**: Claude's responses are spoken aloud
-- **Voice-Friendly Formatting**: Claude structures responses with TTS-optimized abstracts
-- **Wake Word**: Say "Jarvis" to start speaking a command
-- **Keyboard Shortcut**: Press Cmd+Shift+Space (or Ctrl+Shift+Space) for reliable voice input
-- **Voice Notifications**: Audio alerts for permission prompts and idle states
-- **Multiple Providers**: Supports local and cloud-based speech services
+<!-- Demo GIF placeholder - replace with actual recording -->
+<!-- ![Demo](docs/demo.gif) -->
+
+**Features:**
+
+- Speaks Claude's responses aloud (Text-to-Speech)
+- Transcribes your voice commands (Speech-to-Text)
+- Hands-free with wake word detection ("Jarvis")
+- Works offline with local providers - no API keys required
+- Deep integration with Claude Code via hooks system
 
 ## Quick Start
 
 ```bash
-# Install globally
 npm install -g claude-voice
-
-# Run interactive setup
 claude-voice setup
-
-# Start the daemon
 claude-voice start
 ```
 
-## Installation
+Say **"Jarvis"** followed by your command, or press **Cmd+Shift+Space** (macOS) / **Ctrl+Shift+Space** (Linux).
 
-### Prerequisites
+## How It Works
 
-- Node.js 18+
-- macOS (primary) or Linux
-- Microphone access
-
-### Install from npm
-
-```bash
-npm install -g claude-voice
+```
+You speak              Claude Voice            Claude Code
+    |                       |                       |
+    |--- "Jarvis..." -----> |                       |
+    |    (wake word)        |--- transcribe ------> |
+    |                       |      (STT)            |
+    |                       |                       |
+    |                       | <---- response ------ |
+    | <-- speaks aloud ---- |                       |
+    |        (TTS)          |                       |
 ```
 
-This will automatically:
-1. Set up configuration with sensible defaults
-2. Install Claude Code hooks for auto-start
-3. Install Piper TTS engine (local, free)
-4. Download default voice (en_US-joe-medium)
-5. Download Whisper STT model (whisper-small)
+**Claude Code Integration:**
 
-**For verbose install output:**
+| Hook | Purpose |
+|------|---------|
+| `session-start` | Auto-starts daemon when Claude Code launches |
+| `stop` | Speaks responses when Claude finishes |
+| `post-tool-use` | Announces tool completions (file reads, bash commands) |
+| `notification` | Voice alerts for permission prompts |
+
+## Providers
+
+Choose local (free, offline) or cloud providers:
+
+| Capability | Local (Free) | Cloud |
+|------------|--------------|-------|
+| Text-to-Speech | Piper, macOS Say, espeak | OpenAI TTS, ElevenLabs |
+| Speech-to-Text | Sherpa-ONNX | OpenAI Whisper |
+| Wake Word | Sherpa-ONNX | Picovoice Porcupine |
+
+<details>
+<summary><strong>TTS Providers</strong></summary>
+
+### Piper (Default)
+
+Local neural TTS with high-quality voices. No API key required.
+
 ```bash
-npm install -g claude-voice --foreground-scripts
+claude-voice voice list                    # See available voices
+claude-voice voice download en_US-amy-medium
+claude-voice config set tts.provider=piper
 ```
 
-### Install from source
+### macOS Say
+
+Built-in macOS speech synthesis.
 
 ```bash
-git clone https://github.com/anthropics/claude-voice.git
-cd claude-voice
-npm install
-npm run build
-npm link
-```
-
-## Configuration
-
-Configuration is stored in `~/.claude-voice/config.json`.
-
-### Interactive Setup
-
-```bash
-claude-voice setup
-```
-
-### Using the CLI
-
-```bash
-# View full configuration
-claude-voice config
-
-# Get a specific value
-claude-voice config get tts.provider
-
-# Set a value
-claude-voice config set tts.autoSpeak=false
-
-# Reset to defaults
-claude-voice config reset
-
-# Edit in your editor
-claude-voice config edit
-```
-
-### Configuration Options
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `tts.provider` | string | `macos-say` | TTS provider: `macos-say`, `openai`, `elevenlabs`, `piper`, `espeak`, `disabled` |
-| `tts.autoSpeak` | boolean | `false` | Automatically speak Claude's responses |
-| `tts.maxSpeechLength` | number | `500` | Maximum characters to speak |
-| `tts.skipCodeBlocks` | boolean | `true` | Skip code blocks when speaking |
-| `stt.provider` | string | `openai` | STT provider: `openai`, `whisper-local`, `sherpa-onnx`, `disabled` |
-| `stt.language` | string | `en` | Default language for transcription |
-| `wakeWord.enabled` | boolean | `true` | Enable wake word detection |
-| `wakeWord.keyword` | string | `jarvis` | Wake word keyword |
-| `wakeWord.sensitivity` | number | `0.5` | Wake word sensitivity (0.0-1.0) |
-| `wakeWord.playSound` | boolean | `true` | Play sound when wake word detected |
-| `shortcut.enabled` | boolean | `true` | Enable keyboard shortcut for voice input |
-| `shortcut.key` | string | `CommandOrControl+Shift+Space` | Keyboard shortcut to trigger recording |
-| `notifications.enabled` | boolean | `true` | Enable voice notifications |
-| `notifications.permissionPrompt` | boolean | `true` | Speak permission prompts |
-| `notifications.idlePrompt` | boolean | `true` | Speak idle prompts |
-| `notifications.errors` | boolean | `false` | Speak error notifications |
-| `voiceOutput.enabled` | boolean | `false` | Enable TTS-friendly response formatting |
-| `voiceOutput.abstractMarker` | string | `<!-- TTS -->` | Marker separating spoken/technical content |
-| `voiceOutput.maxAbstractLength` | number | `200` | Max characters for spoken abstract |
-| `voiceOutput.promptTemplate` | string | `null` | Custom prompt template path |
-| `toolTTS.enabled` | boolean | `true` | Enable TTS announcements for tool use |
-| `toolTTS.mode` | string | `summarize` | Tool announcement mode: `summarize` or `completion` |
-| `toolTTS.announceErrors` | boolean | `true` | Announce tool execution errors |
-| `toolTTS.maxSummaryLength` | number | `100` | Max characters for tool summaries |
-| `terminal.injectionMethod` | string | `auto` | Terminal injection: `auto`, `applescript`, `xdotool` |
-| `terminal.targetTerminal` | string | `auto` | Target terminal: `auto`, `iterm`, `terminal`, etc. |
-| `terminal.pressEnterAfterInput` | boolean | `true` | Press enter after injecting text |
-| `recording.sampleRate` | number | `16000` | Audio sample rate in Hz |
-| `recording.channels` | number | `1` | Audio channels (mono=1, stereo=2) |
-| `recording.silenceThreshold` | number | `2000` | Silence duration (ms) to stop recording |
-| `recording.silenceAmplitude` | number | `500` | Amplitude threshold for silence detection |
-| `recording.maxDuration` | number | `30000` | Maximum recording duration (ms) |
-| `server.port` | number | `3456` | Daemon HTTP server port |
-| `server.host` | string | `127.0.0.1` | Daemon HTTP server host |
-| `debug` | boolean | `false` | Enable debug logging |
-
-## TTS Providers
-
-### macOS Say (Default on macOS)
-No API key required. Uses built-in macOS speech synthesis.
-
-```bash
-# List available voices
-claude-voice voices
-
-# Change voice
-claude-voice config set tts.macos.voice=Alex
-
-# Adjust speed (words per minute)
-claude-voice config set tts.macos.rate=180
+claude-voice voices                        # List available voices
+claude-voice config set tts.provider=macos-say
+claude-voice config set tts.macos.voice=Samantha
 ```
 
 ### OpenAI TTS
-Requires `OPENAI_API_KEY`. High-quality neural voices.
+
+High-quality neural voices. Requires `OPENAI_API_KEY`.
 
 ```bash
-# Set API key
-export OPENAI_API_KEY="sk-..."
-
-# Or save to .env file
 echo "OPENAI_API_KEY=sk-..." >> ~/.claude-voice/.env
-
-# Switch to OpenAI
 claude-voice config set tts.provider=openai
-
-# Choose voice (alloy, echo, fable, onyx, nova, shimmer)
 claude-voice config set tts.openai.voice=nova
 ```
 
 ### ElevenLabs
-Requires `ELEVENLABS_API_KEY`. Premium voice cloning.
+
+Premium voice synthesis. Requires `ELEVENLABS_API_KEY`.
 
 ```bash
-export ELEVENLABS_API_KEY="..."
+echo "ELEVENLABS_API_KEY=..." >> ~/.claude-voice/.env
 claude-voice config set tts.provider=elevenlabs
-claude-voice config set tts.elevenlabs.voiceId=YOUR_VOICE_ID
 ```
 
-## STT Providers
+</details>
 
-### Sherpa-ONNX (FREE - Recommended)
-Embedded, offline speech recognition. No API key required!
+<details>
+<summary><strong>STT Providers</strong></summary>
+
+### Sherpa-ONNX (Default)
+
+Local Whisper models. No API key required. Supports 100+ languages.
 
 ```bash
-# List available models
-claude-voice model list
-
-# Download a model (75-488MB)
-claude-voice model download whisper-tiny
-
-# Switch to Sherpa-ONNX
+claude-voice model list                    # Available models
+claude-voice model download whisper-small  # Best accuracy (488MB)
 claude-voice config set stt.provider=sherpa-onnx
-
-# Set language (supports 100+ languages including Turkish)
-claude-voice config set stt.language=tr
+claude-voice config set stt.language=en    # or: tr, de, fr, es, etc.
 ```
 
-Available models:
 | Model | Size | Speed | Accuracy |
 |-------|------|-------|----------|
-| `whisper-tiny` | 75 MB | Fast | Good |
-| `whisper-base` | 142 MB | Medium | Better |
-| `whisper-small` | 488 MB | Slower | Best |
+| whisper-tiny | 75 MB | Fast | Good |
+| whisper-base | 142 MB | Medium | Better |
+| whisper-small | 488 MB | Slower | Best |
 
-### OpenAI Whisper API
-Fast cloud transcription. Requires `OPENAI_API_KEY`.
+### OpenAI Whisper
+
+Cloud transcription. Requires `OPENAI_API_KEY`.
 
 ```bash
 claude-voice config set stt.provider=openai
 ```
 
-### Local Whisper
-Runs locally on your machine. Requires Python and whisper:
+</details>
+
+<details>
+<summary><strong>Wake Word Providers</strong></summary>
+
+### Sherpa-ONNX (Default)
+
+Local wake word detection. No API key required.
 
 ```bash
-pip install openai-whisper
-claude-voice config set stt.provider=whisper-local
-
-# Choose model (tiny, base, small, medium, large)
-claude-voice config set stt.whisperLocal.model=base
+claude-voice config set wakeWord.provider=sherpa-onnx
+claude-voice config set wakeWord.keyword=jarvis   # or: claude
 ```
 
-## Wake Word Detection
+### Picovoice Porcupine
 
-Wake word detection uses Sherpa-ONNX keyword spotting - **completely FREE and offline**! No API key required.
+High-accuracy wake word detection. Requires `PICOVOICE_ACCESS_KEY`.
+
+1. Get a free access key at [Picovoice Console](https://console.picovoice.ai/)
+2. Configure:
 
 ```bash
-# Download the keyword spotting model (19MB)
-claude-voice model download kws-zipformer-gigaspeech
-
-# Enable wake word
-claude-voice config set wakeWord.enabled=true
-
-# Set custom keyword (default: "jarvis")
-claude-voice config set wakeWord.keyword=jarvis
-
-# Adjust sensitivity (0.0-1.0, higher = more sensitive)
-claude-voice config set wakeWord.sensitivity=0.5
+echo "PICOVOICE_ACCESS_KEY=..." >> ~/.claude-voice/.env
+claude-voice config set wakeWord.provider=picovoice
+claude-voice config set wakeWord.keyword=jarvis   # jarvis, computer, alexa, etc.
 ```
 
-**Note:** On macOS, `sox` is auto-installed via Homebrew during setup. If needed manually:
-```bash
-brew install sox
-```
+Built-in keywords: jarvis, computer, alexa, americano, blueberry, bumblebee, grapefruit, grasshopper, hey google, hey siri, ok google, picovoice, porcupine, terminator
 
-## Keyboard Shortcut
+</details>
 
-For more reliable voice input, use the keyboard shortcut instead of (or alongside) wake word detection.
+## Configuration
 
-**Default Shortcut:**
-- **macOS**: `Cmd + Shift + Space`
-- **Linux**: `Ctrl + Shift + Space`
+Config file: `~/.claude-voice/config.json`
 
 ```bash
-# Enable/disable shortcut
-claude-voice config set shortcut.enabled=true
-
-# Change the shortcut key
-claude-voice config set shortcut.key="CommandOrControl+Shift+V"
+claude-voice config                        # View all settings
+claude-voice config get tts.provider       # Get specific value
+claude-voice config set tts.provider=openai # Set value
+claude-voice config edit                   # Open in editor
+claude-voice config reset                  # Reset to defaults
 ```
 
-### Available Modifiers
-- `CommandOrControl` - Cmd on macOS, Ctrl on Linux/Windows
-- `Command` or `Meta` - Cmd key (macOS only)
-- `Control` or `Ctrl` - Control key
-- `Shift` - Shift key
-- `Alt` or `Option` - Alt/Option key
+<details>
+<summary><strong>TTS Options</strong></summary>
 
-### Example Shortcuts
-```bash
-# Ctrl+Shift+Space (all platforms)
-claude-voice config set shortcut.key="Control+Shift+Space"
+| Option | Default | Description |
+|--------|---------|-------------|
+| `tts.provider` | `piper` | piper, macos-say, openai, elevenlabs, espeak, disabled |
+| `tts.autoSpeak` | `true` | Automatically speak Claude's responses |
+| `tts.maxSpeechLength` | `5000` | Maximum characters to speak |
+| `tts.skipCodeBlocks` | `true` | Skip code blocks when speaking |
 
-# Cmd+Space (macOS only)
-claude-voice config set shortcut.key="Command+Space"
+</details>
 
-# Alt+V
-claude-voice config set shortcut.key="Alt+V"
-```
+<details>
+<summary><strong>STT Options</strong></summary>
 
-## Voice Output Formatting
+| Option | Default | Description |
+|--------|---------|-------------|
+| `stt.provider` | `sherpa-onnx` | sherpa-onnx, openai, whisper-local, disabled |
+| `stt.language` | `en` | Language code (en, tr, de, fr, es, ja, zh, etc.) |
 
-When enabled, Claude structures responses with a TTS-friendly abstract at the beginning. This makes voice output more natural and conversational.
+</details>
 
-### How It Works
+<details>
+<summary><strong>Wake Word Options</strong></summary>
 
-1. Claude adds a brief conversational summary before the `<!-- TTS -->` marker
-2. Technical details (code, file paths, etc.) go after the marker
-3. Only the abstract portion is spoken via TTS
+| Option | Default | Description |
+|--------|---------|-------------|
+| `wakeWord.enabled` | `true` | Enable wake word detection |
+| `wakeWord.provider` | `sherpa-onnx` | sherpa-onnx or picovoice |
+| `wakeWord.keyword` | `jarvis` | Wake word: jarvis, claude, computer, etc. |
+| `wakeWord.sensitivity` | `0.5` | Detection sensitivity (0.0-1.0) |
+| `wakeWord.playSound` | `true` | Play sound on detection |
 
-**Example Claude Response:**
-```
-I found and fixed the authentication bug. The issue was a missing null check.
+</details>
 
-<!-- TTS -->
+<details>
+<summary><strong>Voice Output Options</strong></summary>
 
-**Technical Details:**
-Modified `auth.ts:45` to add proper null checking...
-```
+When enabled, Claude formats responses with a spoken abstract before technical details.
 
-The TTS will only speak: *"I found and fixed the authentication bug. The issue was a missing null check."*
-
-### Configuration
-
-```bash
-# Enable/disable voice output formatting
-claude-voice output enable
-claude-voice output disable
-
-# Check current status
-claude-voice output status
-
-# Configure settings
-claude-voice output config --length 300   # Max abstract length
-claude-voice output config --marker "---" # Custom marker
-```
-
-### Custom Prompt Template
-
-Create `~/.claude-voice/voice-prompt.md` to customize how Claude formats responses:
+| Option | Default | Description |
+|--------|---------|-------------|
+| `voiceOutput.enabled` | `false` | Enable TTS-friendly formatting |
+| `voiceOutput.abstractMarker` | `<!-- TTS -->` | Marker separating spoken/technical content |
+| `voiceOutput.maxAbstractLength` | `200` | Max characters for spoken abstract |
 
 ```bash
-# Copy the default template
-cp /path/to/claude-voice/config/voice-prompt.md ~/.claude-voice/
-
-# Edit to your preferences
-nano ~/.claude-voice/voice-prompt.md
+claude-voice output enable                 # Enable voice-friendly formatting
+claude-voice output status                 # Check current status
 ```
 
-Template variables:
-- `{{MARKER}}` - Replaced with your configured marker
-- `{{MAX_LENGTH}}` - Replaced with max abstract length
+</details>
 
-## CLI Reference
+<details>
+<summary><strong>Tool Announcements</strong></summary>
 
+| Option | Default | Description |
+|--------|---------|-------------|
+| `toolTTS.enabled` | `false` | Announce tool completions |
+| `toolTTS.mode` | `summarize` | summarize or completion |
+| `toolTTS.announceErrors` | `true` | Announce tool errors |
+
+</details>
+
+<details>
+<summary><strong>Keyboard Shortcut</strong></summary>
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `shortcut.enabled` | `false` | Enable keyboard shortcut |
+| `shortcut.key` | `CommandOrControl+Shift+Space` | Key combination |
+
+**Modifiers:** CommandOrControl, Command, Control, Shift, Alt
+
+</details>
+
+<details>
+<summary><strong>Recording Options</strong></summary>
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `recording.sampleRate` | `16000` | Audio sample rate (Hz) |
+| `recording.silenceThreshold` | `2500` | Silence duration to stop (ms) |
+| `recording.silenceAmplitude` | `500` | Amplitude threshold |
+| `recording.maxDuration` | `60000` | Max recording length (ms) |
+
+</details>
+
+<details>
+<summary><strong>Server Options</strong></summary>
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `server.port` | `3456` | HTTP server port |
+| `server.host` | `127.0.0.1` | Server host |
+
+</details>
+
+## CLI Commands
+
+```bash
+# Daemon Management
+claude-voice start              # Start daemon
+claude-voice stop               # Stop daemon
+claude-voice restart            # Restart daemon
+claude-voice status             # Check status
+
+# Setup
+claude-voice setup              # Interactive setup wizard
+claude-voice doctor             # Diagnose issues
+
+# Models & Voices
+claude-voice model list         # List STT models
+claude-voice model download <id>
+claude-voice voice list         # List TTS voices
+claude-voice voice download <id>
+
+# Hooks
+claude-voice hooks install      # Install Claude Code hooks
+claude-voice hooks status       # Check installation
+
+# Testing
+claude-voice test-tts "Hello"   # Test text-to-speech
+claude-voice test-stt file.wav  # Test speech-to-text
+
+# Utilities
+claude-voice logs               # View daemon logs
+claude-voice logs -f            # Follow logs
+claude-voice devices            # List audio devices
 ```
-claude-voice <command>
 
-Core Commands:
-  start                 Start the daemon
-  stop                  Stop the daemon
-  restart               Restart the daemon
-  status                Check status
+Run `claude-voice --help` for all 50+ commands.
 
-Setup:
-  setup                 Interactive setup wizard
-  doctor                Diagnose issues
+## Platform Support
 
-Configuration:
-  config                View configuration
-  config get <key>      Get a value
-  config set <k>=<v>    Set a value
-  config reset          Reset to defaults
-  config edit           Edit in $EDITOR
+| Feature | macOS | Linux |
+|---------|-------|-------|
+| TTS | Piper, Say, OpenAI, ElevenLabs | Piper, espeak, OpenAI, ElevenLabs |
+| STT | Sherpa-ONNX, OpenAI | Sherpa-ONNX, OpenAI |
+| Wake Word | Sherpa-ONNX, Picovoice | Sherpa-ONNX, Picovoice |
+| Keyboard Shortcut | Cmd+Shift+Space | Ctrl+Shift+Space |
+| Terminal Injection | AppleScript | xdotool (X11), dotool (Wayland) |
 
-Hooks:
-  hooks install         Install Claude Code hooks
-  hooks uninstall       Remove hooks
-  hooks status          Check hooks status
-
-Voice Output:
-  output enable         Enable TTS-friendly formatting
-  output disable        Disable TTS-friendly formatting
-  output status         Show voice output settings
-  output config         Configure voice output options
-
-Testing:
-  test-tts [text]       Test TTS
-  test-stt <file>       Test STT
-
-Models:
-  model list            List available STT models
-  model download <id>   Download a model
-  model remove <id>     Remove an installed model
-
-Utilities:
-  voices                List TTS voices
-  devices               List audio devices
-  logs                  View logs
-  logs -f               Follow logs
-```
+**Requirements:**
+- Node.js 18+
+- Microphone access
 
 ## Troubleshooting
 
-### Run the doctor command
+Run diagnostics:
 
 ```bash
 claude-voice doctor
 ```
 
-This will check:
-- Node.js version
-- Platform support
-- Native TTS availability
-- Terminal injection support
-- Configuration validity
-- Hooks installation
-- API keys
-- Daemon status
-
-### Common Issues
+<details>
+<summary><strong>Common Issues</strong></summary>
 
 **Daemon won't start**
 ```bash
-# Check logs
-claude-voice logs
-
-# Run in foreground for debugging
-claude-voice start -f
+claude-voice logs              # Check logs
+claude-voice start -f          # Run in foreground for debugging
 ```
 
 **No audio output**
 ```bash
-# Test TTS directly
-claude-voice test-tts "Hello world"
-
-# Check provider
+claude-voice test-tts "Hello"
 claude-voice config get tts.provider
 ```
 
 **Wake word not detecting**
-- Ensure `PICOVOICE_ACCESS_KEY` is set
 - Check microphone permissions in System Preferences
-- Try `claude-voice devices` to see available microphones
+- Run `claude-voice devices` to verify microphone
+- Adjust sensitivity: `claude-voice config set wakeWord.sensitivity=0.7`
 
 **Text not appearing in terminal**
-- On macOS: Allow Terminal in Accessibility settings
-- Check `claude-voice doctor` for terminal injection status
+- macOS: Allow Terminal in System Preferences > Privacy > Accessibility
+- Run `claude-voice doctor` to check terminal injection status
+
+</details>
 
 ## API Reference
 
-The daemon exposes an HTTP API on port 3456:
+<details>
+<summary><strong>HTTP API (port 3456)</strong></summary>
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/status` | GET | Daemon status |
-| `/tts` | POST | Speak text `{ "text": "...", "priority": false }` |
+| `/status` | GET | Daemon status and provider info |
+| `/tts` | POST | Speak text `{"text": "...", "priority": false}` |
+| `/tts/stop` | POST | Stop current playback |
 | `/stt` | POST | Transcribe audio (multipart/form-data) |
 | `/config` | GET | Get configuration |
 | `/config` | POST | Update configuration |
-| `/tts/stop` | POST | Stop current playback |
 
-## Environment Variables
+</details>
 
-| Variable | Purpose |
-|----------|---------|
-| `OPENAI_API_KEY` | OpenAI TTS and Whisper API |
-| `ELEVENLABS_API_KEY` | ElevenLabs TTS |
+## Contributing
 
-Store in `~/.claude-voice/.env` or export in your shell.
+Contributions are welcome.
 
-**Note:** Wake word detection no longer requires an API key - it uses the free Sherpa-ONNX keyword spotting model.
+```bash
+git clone https://github.com/Menesahin/claude-voice-extension.git
+cd claude-voice-extension
+npm install
+npm run dev
+```
+
+**Guidelines:**
+- Run `npm run lint` before committing
+- Add tests for new features
+- Follow existing code patterns
 
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+[Documentation](https://github.com/Menesahin/claude-voice-extension#readme) |
+[Issues](https://github.com/Menesahin/claude-voice-extension/issues) |
+[Releases](https://github.com/Menesahin/claude-voice-extension/releases)

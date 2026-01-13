@@ -1,7 +1,14 @@
-import { exec, execSync } from 'child_process';
+import { exec, execSync, spawn } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
+
+/**
+ * Check if running on Wayland
+ */
+function isWayland(): boolean {
+  return process.env.XDG_SESSION_TYPE === 'wayland';
+}
 
 export interface InputInjectorOptions {
   /**
@@ -166,14 +173,144 @@ end tell`;
   }
 
   /**
-   * Types text into the active terminal using xdotool on Linux
+   * Types text into the active terminal on Linux (X11 or Wayland)
    */
   private async typeLinux(text: string, pressEnter: boolean): Promise<void> {
-    // Check for xdotool
+    if (isWayland()) {
+      return this.typeWayland(text, pressEnter);
+    }
+    return this.typeX11(text, pressEnter);
+  }
+
+  /**
+   * Types text on Wayland using dotool, ydotool, wtype, or clipboard fallback
+   */
+  private async typeWayland(text: string, pressEnter: boolean): Promise<void> {
+    // 1. Try dotool first (simplest, no daemon required)
+    if (hasCommand('dotool')) {
+      try {
+        return await this.typeDotool(text, pressEnter);
+      } catch (error) {
+        console.warn('dotool failed, trying ydotool...', error);
+      }
+    }
+
+    // 2. Try ydotool (works on all Wayland compositors including GNOME)
+    if (hasCommand('ydotool')) {
+      try {
+        return await this.typeYdotool(text, pressEnter);
+      } catch (error) {
+        console.warn('ydotool failed, trying wtype...', error);
+      }
+    }
+
+    // 3. Try wtype (doesn't work on GNOME, but works on other compositors)
+    if (hasCommand('wtype') && hasCommand('wl-copy')) {
+      try {
+        return await this.typeWtype(text, pressEnter);
+      } catch (error) {
+        console.warn('wtype failed, falling back to clipboard...', error);
+      }
+    }
+
+    // 4. Fallback: Copy to clipboard and notify user
+    await this.copyToClipboardWayland(text);
+    console.log('\n📋 Text copied to clipboard. Press Ctrl+Shift+V to paste.\n');
+  }
+
+  /**
+   * Types text using dotool (simplest method, no daemon required)
+   */
+  private async typeDotool(text: string, pressEnter: boolean): Promise<void> {
+    // Build dotool commands
+    // dotool reads commands from stdin: "type <text>" and "key <keyname>"
+    let commands = `type ${text}`;
+    if (pressEnter) {
+      commands += '\nkey Return';
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn('dotool', [], { stdio: ['pipe', 'ignore', 'pipe'] });
+      proc.stdin.write(commands);
+      proc.stdin.end();
+      proc.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`dotool exited with code ${code}`));
+      });
+      proc.on('error', reject);
+    });
+  }
+
+  /**
+   * Types text using ydotool (works on all Wayland compositors)
+   */
+  private async typeYdotool(text: string, pressEnter: boolean): Promise<void> {
+    // Escape special characters for shell
+    const escapedText = text
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/`/g, '\\`')
+      .replace(/\$/g, '\\$');
+
+    // ydotool type with delay for reliability
+    await execAsync(`ydotool type --key-delay 5 -- "${escapedText}"`);
+
+    if (pressEnter) {
+      await this.delay(50);
+      // Enter key: scancode 28
+      await execAsync('ydotool key 28:1 28:0');
+    }
+  }
+
+  /**
+   * Types text using wtype (may not work on GNOME)
+   */
+  private async typeWtype(text: string, pressEnter: boolean): Promise<void> {
+    // Copy text to clipboard
+    await this.copyToClipboardWayland(text);
+    await this.delay(50);
+
+    // Paste with Ctrl+Shift+V
+    await execAsync('wtype -M ctrl -M shift -k v -m shift -m ctrl');
+
+    if (pressEnter) {
+      await this.delay(50);
+      await execAsync('wtype -k Return');
+    }
+  }
+
+  /**
+   * Copy text to Wayland clipboard
+   */
+  private async copyToClipboardWayland(text: string): Promise<void> {
+    if (!hasCommand('wl-copy')) {
+      throw new Error('wl-copy not found. Install with: sudo apt install wl-clipboard');
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn('wl-copy', [], { stdio: ['pipe', 'ignore', 'ignore'] });
+      proc.stdin.write(text);
+      proc.stdin.end();
+      proc.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`wl-copy failed with code ${code}`));
+      });
+      proc.on('error', reject);
+    });
+  }
+
+  /**
+   * Types text using xdotool on X11, with dotool fallback
+   */
+  private async typeX11(text: string, pressEnter: boolean): Promise<void> {
+    // Try dotool first if xdotool not available
     if (!hasCommand('xdotool')) {
+      if (hasCommand('dotool')) {
+        return await this.typeDotool(text, pressEnter);
+      }
       throw new Error(
         'xdotool not found. Install it with: sudo apt install xdotool\n' +
-        'Note: xdotool works with X11. For Wayland, use ydotool.'
+        'Or install dotool from: https://git.sr.ht/~geb/dotool'
       );
     }
 
@@ -185,10 +322,41 @@ end tell`;
       .replace(/\$/g, '\\$');
 
     try {
-      // Type the text using xdotool
+      // First, try to find and activate a terminal window
+      const terminalPatterns = [
+        'gnome-terminal',
+        'konsole',
+        'xfce4-terminal',
+        'xterm',
+        'terminator',
+        'alacritty',
+        'kitty',
+        'tilix',
+        'Terminal',
+      ];
+
+      let activated = false;
+      for (const pattern of terminalPatterns) {
+        try {
+          await execAsync(`xdotool search --name "${pattern}" windowactivate --sync 2>/dev/null`);
+          activated = true;
+          break;
+        } catch {
+          continue;
+        }
+      }
+
+      if (!activated) {
+        try {
+          await execAsync('xdotool getactivewindow');
+        } catch {
+          throw new Error('No terminal window found. Please focus your terminal window.');
+        }
+      }
+
+      await this.delay(100);
       await execAsync(`xdotool type --clearmodifiers "${escapedText}"`);
 
-      // Press Enter if requested
       if (pressEnter) {
         await execAsync('xdotool key Return');
       }
