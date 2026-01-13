@@ -147,10 +147,16 @@ async function downloadAndExtractFallback(url, destDir, expectedFolder, label) {
 async function downloadFile(url, destPath, label, retries = 3) {
   return new Promise((resolve, reject) => {
     const makeRequest = (requestUrl, attempt = 1) => {
+      const parsedUrl = new URL(requestUrl);
       https.get(requestUrl, (response) => {
         // Handle redirects (301, 302, 307, 308)
         if ([301, 302, 307, 308].includes(response.statusCode)) {
-          makeRequest(response.headers.location, attempt);
+          let redirectUrl = response.headers.location;
+          // Handle relative redirects
+          if (redirectUrl.startsWith('/')) {
+            redirectUrl = `${parsedUrl.protocol}//${parsedUrl.host}${redirectUrl}`;
+          }
+          makeRequest(redirectUrl, attempt);
           return;
         }
 
