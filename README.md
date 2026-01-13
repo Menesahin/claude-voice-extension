@@ -1,7 +1,7 @@
 # Claude Voice Extension
 
 [![npm version](https://img.shields.io/npm/v/claude-voice)](https://www.npmjs.com/package/claude-voice)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-red.svg)](LICENSE)
 [![Node.js](https://img.shields.io/node/v/claude-voice)](https://nodejs.org)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue)]()
 
@@ -373,6 +373,29 @@ claude-voice config get tts.provider
 
 </details>
 
+## Changelog
+
+### v1.4.0
+- **License change** - Switched to PolyForm Noncommercial (commercial use restricted)
+
+### v1.3.19
+- **`shh` command** - Stop TTS instantly
+
+### v1.3.18
+- **`listen` command** - Manual voice trigger without wake word
+
+### v1.3.16
+- **`stop talking` command** - Stop speech playback
+- **dotool support** - Alternative input injection for Linux Wayland
+- **Python detection** - Better cross-platform support
+
+### v1.3.9
+- **Pure Node.js model downloads** - No system dependencies (curl/wget not required)
+
+### v1.3.3
+- **Linux support** - Full Linux platform support added
+- **OpenWakeWord removed** - Using only sherpa-onnx for wake word detection
+
 ## Contributing
 
 Contributions are welcome.
@@ -391,7 +414,9 @@ npm run dev
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+**PolyForm Noncommercial License 1.0.0**
+
+Free for personal use, research, education, and non-profit organizations. Commercial use requires a separate license. See [LICENSE](LICENSE) for details.
 
 ---
 
