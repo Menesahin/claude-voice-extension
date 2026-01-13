@@ -382,6 +382,19 @@ async function runSetup() {
       console.log(`  Model: Whisper Base (142MB) - better accuracy`);
       await downloadAndExtract(modelUrl, MODELS_DIR, modelFolder, modelId);
       console.log(`  [✓] Model installed: ${modelId}`);
+
+      // Update config to use whisper-base
+      try {
+        const configPath = path.join(CONFIG_DIR, 'config.json');
+        if (fs.existsSync(configPath)) {
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+          if (config.stt && config.stt.sherpaOnnx) {
+            config.stt.sherpaOnnx.model = 'whisper-base';
+            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+            console.log(`  [✓] Config updated to use whisper-base`);
+          }
+        }
+      } catch {}
     }
   } catch (err) {
     console.log('  [!] Could not download STT model:', err.message);
