@@ -5,6 +5,41 @@ import * as os from 'os';
 const CONFIG_DIR = path.join(os.homedir(), '.claude-voice');
 const ENV_FILE = path.join(CONFIG_DIR, '.env');
 
+/**
+ * Mask sensitive data (API keys) in strings for safe logging
+ * Shows first 4 and last 4 characters only
+ */
+export function maskSensitiveData(text: string): string {
+  if (!text) return text;
+
+  // Pattern to match common API key formats
+  const apiKeyPatterns = [
+    /sk-[a-zA-Z0-9]{20,}/g,           // OpenAI keys
+    /[a-f0-9]{32}/gi,                  // ElevenLabs and similar hex keys
+    /[A-Za-z0-9_-]{20,}/g,            // Generic long tokens
+  ];
+
+  let masked = text;
+  for (const pattern of apiKeyPatterns) {
+    masked = masked.replace(pattern, (match) => {
+      if (match.length <= 8) return '****';
+      return match.slice(0, 4) + '****' + match.slice(-4);
+    });
+  }
+
+  return masked;
+}
+
+/**
+ * Safely stringify an error for logging, masking any sensitive data
+ */
+export function safeErrorString(error: unknown): string {
+  if (error instanceof Error) {
+    return maskSensitiveData(error.message);
+  }
+  return maskSensitiveData(String(error));
+}
+
 export interface EnvVars {
   OPENAI_API_KEY?: string;
   ELEVENLABS_API_KEY?: string;

@@ -21,6 +21,7 @@ let sttManager: STTManager | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let keyListener: any = null;
 let isRecordingFromShortcut = false;
+let recordingLock = false; // Mutex for recording state
 
 async function startDaemon(): Promise<void> {
   // Load API keys from ~/.claude-voice/.env first
@@ -189,9 +190,12 @@ async function initializeShortcut(config: ReturnType<typeof loadConfig>): Promis
       const keyName = e.name?.toUpperCase() || '';
       const keyMatches = keyName === mainKey || keyName === mainKey.toLowerCase();
 
-      if (modifiersMatch && keyMatches && !isRecordingFromShortcut) {
-        console.log('Shortcut triggered! Starting voice recording...');
+      if (modifiersMatch && keyMatches && !isRecordingFromShortcut && !recordingLock) {
+        // Atomic lock to prevent race conditions
+        recordingLock = true;
         isRecordingFromShortcut = true;
+
+        console.log('Shortcut triggered! Starting voice recording...');
 
         // Play sound to indicate listening
         playShortcutSound('start');
@@ -209,6 +213,7 @@ async function initializeShortcut(config: ReturnType<typeof loadConfig>): Promis
         recordingTimeout = setTimeout(() => {
           if (isRecordingFromShortcut) {
             isRecordingFromShortcut = false;
+            recordingLock = false;
             playShortcutSound('stop');
           }
         }, config.recording.maxDuration);
@@ -271,6 +276,7 @@ async function startStandaloneRecording(config: ReturnType<typeof loadConfig>): 
 
   recordProcess.on('close', async () => {
     isRecordingFromShortcut = false;
+    recordingLock = false;
     playShortcutSound('stop');
 
     if (fs.existsSync(tempPath) && sttManager) {
@@ -280,9 +286,15 @@ async function startStandaloneRecording(config: ReturnType<typeof loadConfig>): 
           console.log(`Transcribed: "${transcript}"`);
           await sendToClaudeCode(transcript);
         }
-        fs.unlinkSync(tempPath);
       } catch (error) {
         console.error('Error transcribing:', error);
+      } finally {
+        // Always cleanup temp file
+        try {
+          fs.unlinkSync(tempPath);
+        } catch {
+          // Ignore cleanup errors
+        }
       }
     }
   });

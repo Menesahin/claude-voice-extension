@@ -14,7 +14,7 @@ export interface TTSProvider {
 export class TTSManager {
   private provider: TTSProvider;
   private queue: { text: string; priority: boolean }[] = [];
-  private isPlaying = false;
+  private processingPromise: Promise<void> | null = null;
 
   constructor(config: TTSConfig) {
     this.provider = this.createProvider(config);
@@ -45,34 +45,36 @@ export class TTSManager {
       this.queue.push({ text, priority });
     }
 
-    await this.processQueue();
+    // If not already processing, start processing
+    // Use Promise-based lock to prevent race conditions
+    if (!this.processingPromise) {
+      this.processingPromise = this.processQueue();
+    }
+
+    await this.processingPromise;
   }
 
   private async processQueue(): Promise<void> {
-    if (this.isPlaying || this.queue.length === 0) {
-      return;
-    }
-
-    this.isPlaying = true;
-
-    while (this.queue.length > 0) {
-      const item = this.queue.shift();
-      if (item) {
-        try {
-          await this.provider.speak(item.text);
-        } catch (error) {
-          console.error('TTS error:', error);
+    try {
+      while (this.queue.length > 0) {
+        const item = this.queue.shift();
+        if (item) {
+          try {
+            await this.provider.speak(item.text);
+          } catch (error) {
+            console.error('TTS error:', error);
+          }
         }
       }
+    } finally {
+      this.processingPromise = null;
     }
-
-    this.isPlaying = false;
   }
 
   stop(): void {
     this.queue = [];
     this.provider.stop();
-    this.isPlaying = false;
+    this.processingPromise = null;
   }
 
   isReady(): boolean {
