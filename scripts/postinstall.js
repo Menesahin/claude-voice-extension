@@ -144,17 +144,22 @@ async function downloadAndExtractFallback(url, destDir, expectedFolder, label) {
 /**
  * Download a file using Node.js https (for simple files like .onnx)
  */
-async function downloadFile(url, destPath, label) {
+async function downloadFile(url, destPath, label, retries = 3) {
   return new Promise((resolve, reject) => {
-    const makeRequest = (requestUrl) => {
+    const makeRequest = (requestUrl, attempt = 1) => {
       https.get(requestUrl, (response) => {
-        // Handle redirects
-        if (response.statusCode === 302 || response.statusCode === 301) {
-          makeRequest(response.headers.location);
+        // Handle redirects (301, 302, 307, 308)
+        if ([301, 302, 307, 308].includes(response.statusCode)) {
+          makeRequest(response.headers.location, attempt);
           return;
         }
 
         if (response.statusCode !== 200) {
+          if (attempt < retries) {
+            console.log(`\r  ${label}: Retry ${attempt + 1}/${retries}...`);
+            setTimeout(() => makeRequest(requestUrl, attempt + 1), 1000);
+            return;
+          }
           reject(new Error(`HTTP ${response.statusCode}`));
           return;
         }
@@ -188,7 +193,14 @@ async function downloadFile(url, destPath, label) {
           fs.unlink(destPath, () => {});
           reject(err);
         });
-      }).on('error', reject);
+      }).on('error', (err) => {
+        if (attempt < retries) {
+          console.log(`\r  ${label}: Network error, retry ${attempt + 1}/${retries}...`);
+          setTimeout(() => makeRequest(requestUrl, attempt + 1), 1000);
+        } else {
+          reject(err);
+        }
+      });
     };
 
     makeRequest(url);
@@ -340,29 +352,34 @@ async function runSetup() {
     console.log('      Run manually: claude-voice voice download en_US-joe-medium');
   }
 
-  // 7. Download whisper-tiny STT model
+  // 7. Download whisper-base STT model (better accuracy than tiny)
   console.log('\nStep 5/7: Downloading Whisper STT model...');
   console.log('  (This may take 2-3 minutes depending on connection)\n');
   try {
-    const modelId = 'whisper-tiny';
-    const modelFolder = 'sherpa-onnx-whisper-tiny';
-    const modelUrl = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2';
+    const modelId = 'whisper-base';
+    const modelFolder = 'sherpa-onnx-whisper-base';
+    const modelUrl = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.tar.bz2';
     const modelPath = path.join(MODELS_DIR, modelFolder);
+
+    // Also accept whisper-tiny as valid (for existing installs)
+    const tinyPath = path.join(MODELS_DIR, 'sherpa-onnx-whisper-tiny');
 
     if (fs.existsSync(modelPath)) {
       console.log(`  [✓] Model already installed: ${modelId}`);
+    } else if (fs.existsSync(tinyPath)) {
+      console.log(`  [✓] Model already installed: whisper-tiny (upgrade with: claude-voice model download whisper-base)`);
     } else {
       if (!fs.existsSync(MODELS_DIR)) {
         fs.mkdirSync(MODELS_DIR, { recursive: true });
       }
 
-      console.log(`  Model: Whisper Tiny (75MB)`);
+      console.log(`  Model: Whisper Base (142MB) - better accuracy`);
       await downloadAndExtract(modelUrl, MODELS_DIR, modelFolder, modelId);
       console.log(`  [✓] Model installed: ${modelId}`);
     }
   } catch (err) {
     console.log('  [!] Could not download STT model:', err.message);
-    console.log('      Run manually: claude-voice model download whisper-tiny');
+    console.log('      Run manually: claude-voice model download whisper-base');
   }
 
   // 8. Download Sherpa-ONNX keyword spotting model for wake word
@@ -436,7 +453,38 @@ async function runSetup() {
     }
   }
 
-  // 10. Show platform info and completion
+  // 10. Validate installation
+  console.log('\nValidating installation...');
+  const installationIssues = [];
+
+  // Check Piper voice
+  const voiceDir = path.join(VOICES_DIR, 'en_US-joe-medium');
+  if (!fs.existsSync(voiceDir) || !fs.existsSync(path.join(voiceDir, 'en_US-joe-medium.onnx'))) {
+    installationIssues.push('Piper voice not installed. Run: claude-voice voice download en_US-joe-medium');
+  }
+
+  // Check Whisper model (accept either base or tiny)
+  const whisperBase = path.join(MODELS_DIR, 'sherpa-onnx-whisper-base');
+  const whisperTiny = path.join(MODELS_DIR, 'sherpa-onnx-whisper-tiny');
+  if (!fs.existsSync(whisperBase) && !fs.existsSync(whisperTiny)) {
+    installationIssues.push('Whisper model not installed. Run: claude-voice model download whisper-base');
+  }
+
+  // Check KWS model
+  const kwsModel = path.join(MODELS_DIR, 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01');
+  if (!fs.existsSync(kwsModel)) {
+    installationIssues.push('Wake word model not installed. Run: claude-voice model download kws-zipformer-gigaspeech');
+  }
+
+  if (installationIssues.length > 0) {
+    console.log('  [!] Some components need manual installation:\n');
+    installationIssues.forEach(issue => console.log(`      - ${issue}`));
+    console.log('');
+  } else {
+    console.log('  [✓] All models installed successfully');
+  }
+
+  // 11. Show platform info and completion
   console.log('\nFinalizing setup...');
   console.log(`  Platform: ${platform}`);
 
