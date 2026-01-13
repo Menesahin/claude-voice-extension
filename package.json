@@ -1,6 +1,6 @@
 {
   "name": "claude-voice",
-  "version": "1.3.22",
+  "version": "1.4.0",
   "description": "Voice interface extension for Claude Code - TTS, STT, and wake word detection",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -29,7 +29,7 @@
     "wake-word"
   ],
   "author": "Enes Sahin <menesahin99@gmail.com>",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Menesahin/claude-voice-extension.git"
