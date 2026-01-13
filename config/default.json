@@ -48,7 +48,7 @@
     "enabled": true,
     "provider": "sherpa-onnx",
     "keyword": "jarvis",
-    "sensitivity": 0.5,
+    "sensitivity": 1.0,
     "playSound": true,
     "keywords": {
       "jarvis": [
@@ -57,7 +57,13 @@
         "J AR VI S",
         "J A R VI S",
         "J A R V I S",
-        "▁JA R V IS"
+        "▁JA R V IS",
+        "▁JAR VIS",
+        "JAR VIS",
+        "▁J AR VIS",
+        "J AR VIS",
+        "▁JAR V IS",
+        "JAR V IS"
       ],
       "claude": [
         "▁C L A U DE",
@@ -124,8 +130,8 @@
   "recording": {
     "sampleRate": 16000,
     "channels": 1,
-    "silenceThreshold": 2500,
-    "silenceAmplitude": 500,
+    "silenceThreshold": 3500,
+    "silenceAmplitude": 300,
     "maxDuration": 60000
   },
   "server": {

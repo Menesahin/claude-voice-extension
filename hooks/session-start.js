@@ -172,10 +172,14 @@ async function main() {
   const wakeWordEnabled = config.wakeWord?.enabled !== false;
   const keyword = config.wakeWord?.keyword || 'jarvis';
   const capitalizedKeyword = keyword.charAt(0).toUpperCase() + keyword.slice(1);
+  const wakeWordProvider = config.wakeWord?.provider || 'sherpa-onnx';
+  const picovoiceTip = wakeWordProvider === 'sherpa-onnx'
+    ? ' Tip: For better wake word detection, use Picovoice (free API key at picovoice.ai).'
+    : '';
 
   if (isRunning) {
     if (wakeWordEnabled) {
-      additionalContext = `[Voice Extension] Voice interface active. Say "${capitalizedKeyword}" to start speaking.`;
+      additionalContext = `[Voice Extension] Voice interface active. Say "${capitalizedKeyword}" to start speaking.${picovoiceTip}`;
     } else {
       additionalContext = '[Voice Extension] Voice interface active.';
     }
@@ -184,7 +188,7 @@ async function main() {
     const started = await startDaemon();
     if (started) {
       if (wakeWordEnabled) {
-        additionalContext = `[Voice Extension] Voice interface started. Say "${capitalizedKeyword}" to start speaking.`;
+        additionalContext = `[Voice Extension] Voice interface started. Say "${capitalizedKeyword}" to start speaking.${picovoiceTip}`;
       } else {
         additionalContext = '[Voice Extension] Voice interface started.';
       }
