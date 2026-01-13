@@ -337,4 +337,12 @@ export class PicovoiceDetector extends EventEmitter {
       this.porcupine = null;
     }
   }
+
+  triggerListening(): void {
+    if (this.config.playSound) {
+      playSound('Ping');
+    }
+    this.emit('wakeword', 0);
+    this.startCommandRecording();
+  }
 }

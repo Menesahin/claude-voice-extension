@@ -8,7 +8,7 @@
 
 import { loadConfig } from './config';
 import { loadEnvVars } from './env';
-import { startServer } from './server';
+import { startServer, setWakeWordDetector } from './server';
 import { createWakeWordDetector, IWakeWordDetector } from './wake-word';
 import { STTManager } from './stt';
 import { sendToClaudeCode } from './terminal/input-injector';
@@ -112,6 +112,9 @@ async function initializeWakeWord(config: ReturnType<typeof loadConfig>): Promis
 
     await wakeWordDetector.initialize();
     await wakeWordDetector.start();
+
+    // Register with server for /listen endpoint
+    setWakeWordDetector(wakeWordDetector);
 
     const keyword = config.wakeWord.keyword.charAt(0).toUpperCase() + config.wakeWord.keyword.slice(1);
     console.log(`Wake word detection active. Say "${keyword}" to start speaking.`);

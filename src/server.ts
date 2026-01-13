@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { loadConfig, saveConfig, Config } from './config';
 import { TTSManager } from './tts';
 import { STTManager } from './stt';
+import { IWakeWordDetector } from './wake-word';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -53,11 +54,16 @@ function isValidAudioPath(audioPath: string): boolean {
 
 let ttsManager: TTSManager;
 let sttManager: STTManager;
+let wakeWordDetector: IWakeWordDetector | null = null;
 
 export function initializeManagers(): void {
   const config = loadConfig();
   ttsManager = new TTSManager(config.tts);
   sttManager = new STTManager(config.stt);
+}
+
+export function setWakeWordDetector(detector: IWakeWordDetector): void {
+  wakeWordDetector = detector;
 }
 
 // Health check
@@ -153,6 +159,16 @@ app.post('/stt', async (req: Request, res: Response, next: NextFunction) => {
 app.post('/tts/stop', (_req: Request, res: Response) => {
   ttsManager.stop();
   res.json({ success: true, message: 'Playback stopped' });
+});
+
+// Trigger listening (manual wake word alternative)
+app.post('/listen', (_req: Request, res: Response) => {
+  if (!wakeWordDetector) {
+    res.status(503).json({ error: 'Wake word detector not initialized' });
+    return;
+  }
+  wakeWordDetector.triggerListening();
+  res.json({ success: true, message: 'Listening started' });
 });
 
 // Get current configuration

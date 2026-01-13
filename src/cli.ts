@@ -1045,6 +1045,25 @@ program
     }
   });
 
+program
+  .command('listen')
+  .description('Start listening for voice command (no wake word needed)')
+  .action(async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:3456/listen', {
+        method: 'POST',
+      });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (data.success) {
+        console.log('Listening... Speak your command.');
+      } else {
+        console.error('Error:', data.error);
+      }
+    } catch {
+      console.error('Daemon not running. Start with: claude-voice start');
+    }
+  });
+
 // ============================================================================
 // Utility Commands
 // ============================================================================

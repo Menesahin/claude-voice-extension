@@ -26,6 +26,7 @@ export interface IWakeWordDetector extends EventEmitter {
   start(): Promise<void>;
   stop(): void;
   cleanup(): void;
+  triggerListening(): void;
 }
 
 /**
@@ -364,6 +365,14 @@ export class SherpaOnnxDetector extends EventEmitter implements IWakeWordDetecto
       }
       this.kws = null;
     }
+  }
+
+  triggerListening(): void {
+    if (this.config.playSound) {
+      playSound('Ping');
+    }
+    this.emit('wakeword', 0);
+    this.startCommandRecording();
   }
 
   /**
