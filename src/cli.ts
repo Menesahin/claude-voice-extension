@@ -1064,6 +1064,24 @@ program
     }
   });
 
+program
+  .command('shh')
+  .alias('shut-up')
+  .description('Stop TTS playback immediately')
+  .action(async () => {
+    try {
+      const response = await fetch('http://127.0.0.1:3456/tts/stop', {
+        method: 'POST',
+      });
+      const data = (await response.json()) as { success?: boolean };
+      if (data.success) {
+        console.log('TTS stopped.');
+      }
+    } catch {
+      console.error('Daemon not running.');
+    }
+  });
+
 // ============================================================================
 // Utility Commands
 // ============================================================================
