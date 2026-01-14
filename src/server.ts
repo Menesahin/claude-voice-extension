@@ -3,6 +3,7 @@ import { loadConfig, saveConfig, Config } from './config';
 import { TTSManager } from './tts';
 import { STTManager } from './stt';
 import { IWakeWordDetector } from './wake-word';
+import { safeErrorString } from './env';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -12,9 +13,93 @@ const MAX_JSON_SIZE = '1mb';
 const MAX_AUDIO_SIZE = '50mb';
 const MAX_TEXT_LENGTH = 10000;
 
+// Timeout configuration
+const TTS_TIMEOUT_MS = 60000; // 60 seconds for TTS
+const STT_TIMEOUT_MS = 120000; // 120 seconds for STT (larger files take longer)
+
+/**
+ * Wraps a promise with a timeout
+ */
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${operation} timed out after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
+}
+
+// Rate limiting configuration
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 60; // 60 requests per minute
+
+// Simple in-memory rate limiter
+const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
+
+function rateLimiter(req: Request, res: Response, next: NextFunction): void {
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+
+  let clientData = rateLimitStore.get(clientIp);
+
+  if (!clientData || now > clientData.resetTime) {
+    clientData = { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS };
+    rateLimitStore.set(clientIp, clientData);
+  } else {
+    clientData.count++;
+  }
+
+  // Clean up old entries periodically (every 100 requests)
+  if (rateLimitStore.size > 100) {
+    for (const [ip, data] of rateLimitStore.entries()) {
+      if (now > data.resetTime) {
+        rateLimitStore.delete(ip);
+      }
+    }
+  }
+
+  if (clientData.count > RATE_LIMIT_MAX_REQUESTS) {
+    res.status(429).json({
+      error: 'Too many requests',
+      retryAfter: Math.ceil((clientData.resetTime - now) / 1000)
+    });
+    return;
+  }
+
+  next();
+}
+
+/**
+ * Middleware to restrict access to localhost only
+ * This prevents remote access to the voice extension API
+ */
+function localhostOnly(req: Request, res: Response, next: NextFunction): void {
+  const clientIp = req.ip || req.socket.remoteAddress || '';
+
+  // Allow localhost connections (IPv4 and IPv6)
+  const isLocalhost =
+    clientIp === '127.0.0.1' ||
+    clientIp === '::1' ||
+    clientIp === '::ffff:127.0.0.1' ||
+    clientIp === 'localhost';
+
+  if (!isLocalhost) {
+    res.status(403).json({ error: 'Access denied. This API is only available locally.' });
+    return;
+  }
+
+  next();
+}
+
 const app = express();
+
+// Trust proxy for correct IP detection (needed when behind reverse proxy)
+app.set('trust proxy', 'loopback');
+
 app.use(express.json({ limit: MAX_JSON_SIZE }));
 app.use(express.raw({ type: 'audio/*', limit: MAX_AUDIO_SIZE }));
+app.use(localhostOnly);
+app.use(rateLimiter);
 
 /**
  * Validate file path to prevent path traversal attacks
@@ -25,25 +110,26 @@ function isValidAudioPath(audioPath: string): boolean {
     return false;
   }
 
-  const normalizedPath = path.normalize(audioPath);
-  const tempDir = os.tmpdir();
-  const homeDir = os.homedir();
+  // Use path.resolve() to get absolute path and eliminate traversal sequences
+  const resolvedPath = path.resolve(audioPath);
+  const tempDir = path.resolve(os.tmpdir());
+  const homeDir = path.resolve(os.homedir());
 
-  // Path must be within temp or home directory
-  const isInTemp = normalizedPath.startsWith(tempDir);
-  const isInHome = normalizedPath.startsWith(homeDir);
+  // Path must be strictly within temp or home directory (with path separator to prevent prefix attacks)
+  const isInTemp = resolvedPath === tempDir || resolvedPath.startsWith(tempDir + path.sep);
+  const isInHome = resolvedPath === homeDir || resolvedPath.startsWith(homeDir + path.sep);
 
   if (!isInTemp && !isInHome) {
     return false;
   }
 
-  // Check for path traversal sequences
-  if (normalizedPath.includes('..')) {
+  // Double-check for any remaining traversal sequences (defense in depth)
+  if (resolvedPath.includes('..')) {
     return false;
   }
 
   // Validate file extension
-  const ext = path.extname(normalizedPath).toLowerCase();
+  const ext = path.extname(resolvedPath).toLowerCase();
   const validExtensions = ['.wav', '.mp3', '.m4a', '.ogg', '.flac', '.webm'];
   if (!validExtensions.includes(ext)) {
     return false;
@@ -95,13 +181,24 @@ app.post('/tts', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
+    // Trim and validate text
+    const trimmedText = text.trim();
+    if (trimmedText.length === 0) {
+      res.status(400).json({ error: 'Text cannot be empty or whitespace only' });
+      return;
+    }
+
     // Validate text length
-    if (text.length > MAX_TEXT_LENGTH) {
+    if (trimmedText.length > MAX_TEXT_LENGTH) {
       res.status(400).json({ error: `Text exceeds maximum length of ${MAX_TEXT_LENGTH} characters` });
       return;
     }
 
-    await ttsManager.speak(text, priority === 'high');
+    await withTimeout(
+      ttsManager.speak(trimmedText, priority === 'high'),
+      TTS_TIMEOUT_MS,
+      'TTS'
+    );
     res.json({ success: true, message: 'Speech queued' });
   } catch (error) {
     next(error);
@@ -139,7 +236,11 @@ app.post('/stt', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    const transcript = await sttManager.transcribe(audioPath);
+    const transcript = await withTimeout(
+      sttManager.transcribe(audioPath),
+      STT_TIMEOUT_MS,
+      'STT'
+    );
 
     if (shouldCleanup) {
       try {
@@ -194,12 +295,16 @@ app.post('/config', (req: Request, res: Response) => {
   }
 });
 
+// Valid providers
+const VALID_TTS_PROVIDERS = ['macos-say', 'openai', 'elevenlabs', 'piper', 'espeak', 'disabled'];
+const VALID_STT_PROVIDERS = ['sherpa-onnx', 'whisper-local', 'openai', 'disabled'];
+
 // Set TTS provider
 app.post('/tts/provider', (req: Request, res: Response) => {
   const { provider } = req.body;
 
-  if (!['macos-say', 'openai', 'elevenlabs'].includes(provider)) {
-    res.status(400).json({ error: 'Invalid provider' });
+  if (!VALID_TTS_PROVIDERS.includes(provider)) {
+    res.status(400).json({ error: `Invalid provider. Valid options: ${VALID_TTS_PROVIDERS.join(', ')}` });
     return;
   }
 
@@ -213,8 +318,8 @@ app.post('/tts/provider', (req: Request, res: Response) => {
 app.post('/stt/provider', (req: Request, res: Response) => {
   const { provider } = req.body;
 
-  if (!['whisper-local', 'openai'].includes(provider)) {
-    res.status(400).json({ error: 'Invalid provider' });
+  if (!VALID_STT_PROVIDERS.includes(provider)) {
+    res.status(400).json({ error: `Invalid provider. Valid options: ${VALID_STT_PROVIDERS.join(', ')}` });
     return;
   }
 
@@ -224,10 +329,12 @@ app.post('/stt/provider', (req: Request, res: Response) => {
   res.json({ success: true, provider });
 });
 
-// Error handling middleware
+// Error handling middleware - masks sensitive data in logs
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error('Server error:', err);
-  res.status(500).json({ error: err.message || 'Internal server error' });
+  // Log error with masked sensitive data
+  console.error('Server error:', safeErrorString(err));
+  // Return generic error to client (don't leak internal details)
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 export function startServer(): Promise<void> {

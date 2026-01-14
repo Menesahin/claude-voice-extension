@@ -201,15 +201,38 @@ export function loadConfig(): Config {
   }
 }
 
+/**
+ * Atomically write a file using temp file + rename pattern
+ * This prevents corruption if the process crashes during write
+ */
+function atomicWriteFileSync(filePath: string, content: string, options?: fs.WriteFileOptions): void {
+  const tempPath = filePath + '.tmp.' + process.pid;
+  try {
+    fs.writeFileSync(tempPath, content, options);
+    fs.renameSync(tempPath, filePath); // Atomic on POSIX systems
+  } catch (error) {
+    // Clean up temp file if it exists
+    try {
+      if (fs.existsSync(tempPath)) {
+        fs.unlinkSync(tempPath);
+      }
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw error;
+  }
+}
+
 export function saveConfig(config: Partial<Config>): void {
   if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
   }
 
   const currentConfig = loadConfig();
   const newConfig = deepMerge(currentConfig, config);
 
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(newConfig, null, 2));
+  // Use atomic write to prevent corruption
+  atomicWriteFileSync(CONFIG_FILE, JSON.stringify(newConfig, null, 2), { mode: 0o600 });
   cachedConfig = newConfig;
 }
 

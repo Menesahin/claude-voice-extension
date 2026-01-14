@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { STTProvider } from '../index';
 
 const MODELS_DIR = path.join(os.homedir(), '.claude-voice', 'models');
@@ -46,6 +47,7 @@ function setupLibraryPath(): void {
 setupLibraryPath();
 
 // Available models for download
+// SHA256 hashes for integrity verification (null = skip verification for models without known hash)
 export const SHERPA_MODELS = {
   'whisper-tiny': {
     name: 'Whisper Tiny (75MB)',
@@ -53,6 +55,7 @@ export const SHERPA_MODELS = {
     folder: 'sherpa-onnx-whisper-tiny',
     languages: ['en', 'tr', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'ru', 'zh', 'ja', 'ko'],
     type: 'stt',
+    sha256: null as string | null, // To be updated with actual hash
   },
   'whisper-base': {
     name: 'Whisper Base (142MB)',
@@ -60,6 +63,7 @@ export const SHERPA_MODELS = {
     folder: 'sherpa-onnx-whisper-base',
     languages: ['en', 'tr', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'ru', 'zh', 'ja', 'ko'],
     type: 'stt',
+    sha256: null as string | null,
   },
   'whisper-small': {
     name: 'Whisper Small (488MB)',
@@ -67,6 +71,7 @@ export const SHERPA_MODELS = {
     folder: 'sherpa-onnx-whisper-small',
     languages: ['en', 'tr', 'de', 'fr', 'es', 'it', 'pt', 'nl', 'pl', 'ru', 'zh', 'ja', 'ko'],
     type: 'stt',
+    sha256: null as string | null,
   },
   'kws-zipformer-gigaspeech': {
     name: 'Keyword Spotter English (19MB) - For wake word detection',
@@ -74,8 +79,47 @@ export const SHERPA_MODELS = {
     folder: 'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01',
     languages: ['en'],
     type: 'kws',
+    sha256: null as string | null,
   },
 };
+
+/**
+ * Calculate SHA256 hash of a file
+ */
+function calculateFileHash(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (data) => hash.update(data));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
+}
+
+/**
+ * Verify file integrity using SHA256 hash
+ */
+async function verifyFileIntegrity(filePath: string, expectedHash: string | null): Promise<boolean> {
+  if (!expectedHash) {
+    console.warn('  [!] No checksum available for verification - skipping integrity check');
+    return true; // Skip verification if no hash is provided
+  }
+
+  try {
+    const actualHash = await calculateFileHash(filePath);
+    if (actualHash.toLowerCase() !== expectedHash.toLowerCase()) {
+      console.error(`  [!] Checksum mismatch!`);
+      console.error(`      Expected: ${expectedHash}`);
+      console.error(`      Actual:   ${actualHash}`);
+      return false;
+    }
+    console.log('  [✓] Checksum verified');
+    return true;
+  } catch (error) {
+    console.error('  [!] Failed to verify checksum:', error);
+    return false;
+  }
+}
 
 export interface SherpaOnnxConfig {
   model: keyof typeof SHERPA_MODELS;
@@ -181,7 +225,7 @@ export class SherpaOnnxProvider implements STTProvider {
 }
 
 /**
- * Download a Sherpa-ONNX model
+ * Download a Sherpa-ONNX model with integrity verification
  */
 export async function downloadModel(modelId: keyof typeof SHERPA_MODELS): Promise<void> {
   const modelInfo = SHERPA_MODELS[modelId];
@@ -196,31 +240,54 @@ export async function downloadModel(modelId: keyof typeof SHERPA_MODELS): Promis
     return;
   }
 
-  // Create models directory
+  // Create models directory with secure permissions
   if (!fs.existsSync(MODELS_DIR)) {
-    fs.mkdirSync(MODELS_DIR, { recursive: true });
+    fs.mkdirSync(MODELS_DIR, { recursive: true, mode: 0o700 });
   }
 
   console.log(`  Model: ${modelInfo.name}`);
   console.log(`  Languages: ${modelInfo.languages.slice(0, 5).join(', ')}...`);
 
-  const { execSync } = require('child_process');
+  const { spawnSync } = require('child_process');
   const archivePath = path.join(MODELS_DIR, `${modelId}.tar.bz2`);
 
   try {
-    // Download with curl
-    console.log(`  [1/2] Downloading model (~150MB)...`);
-    execSync(`curl -L --progress-bar -o "${archivePath}" "${modelInfo.url}"`, {
+    // Download with curl using spawn (safer than execSync with string interpolation)
+    console.log(`  [1/3] Downloading model...`);
+    const downloadResult = spawnSync('curl', [
+      '-L',
+      '--progress-bar',
+      '--fail', // Fail on HTTP errors
+      '-o', archivePath,
+      modelInfo.url
+    ], {
       stdio: 'inherit',
       cwd: MODELS_DIR
     });
 
+    if (downloadResult.status !== 0) {
+      throw new Error('Download failed');
+    }
+
+    // Verify checksum if available
+    console.log('  [2/3] Verifying integrity...');
+    const isValid = await verifyFileIntegrity(archivePath, modelInfo.sha256);
+    if (!isValid) {
+      // Delete potentially corrupted file
+      try { fs.unlinkSync(archivePath); } catch {}
+      throw new Error('Checksum verification failed - file may be corrupted or tampered');
+    }
+
     // Extract
-    console.log('  [2/2] Extracting model files...');
-    execSync(`tar -xjf "${archivePath}"`, {
+    console.log('  [3/3] Extracting model files...');
+    const extractResult = spawnSync('tar', ['-xjf', archivePath], {
       stdio: 'pipe',
       cwd: MODELS_DIR
     });
+
+    if (extractResult.status !== 0) {
+      throw new Error('Extraction failed');
+    }
 
     // Cleanup archive
     fs.unlinkSync(archivePath);

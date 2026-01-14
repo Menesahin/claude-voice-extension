@@ -28,12 +28,25 @@ export interface InputInjectorOptions {
 }
 
 /**
+ * Allowed commands that can be checked
+ */
+const ALLOWED_COMMANDS = new Set([
+  'xdotool', 'dotool', 'ydotool', 'wtype', 'wl-copy', 'paplay', 'aplay', 'ffplay'
+]);
+
+/**
  * Check if a command exists in PATH
  */
 function hasCommand(cmd: string): boolean {
+  // Only allow checking for known safe commands
+  if (!ALLOWED_COMMANDS.has(cmd)) {
+    return false;
+  }
   try {
-    execSync(`which ${cmd}`, { stdio: 'ignore' });
-    return true;
+    // Use spawn with array args to prevent injection
+    const { spawnSync } = require('child_process');
+    const result = spawnSync('which', [cmd], { stdio: 'ignore' });
+    return result.status === 0;
   } catch {
     return false;
   }
@@ -112,6 +125,16 @@ export class TerminalInputInjector {
   }
 
   /**
+   * Allowed key names for xdotool
+   */
+  private static readonly ALLOWED_KEYS = new Set([
+    'return', 'enter', 'tab', 'space', 'backspace', 'delete', 'escape',
+    'up', 'down', 'left', 'right', 'home', 'end', 'pageup', 'pagedown',
+    'f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'f7', 'f8', 'f9', 'f10', 'f11', 'f12',
+    'Return', 'Tab', 'space', 'BackSpace', 'Delete', 'Escape'
+  ]);
+
+  /**
    * Simulates pressing a key
    */
   async pressKey(key: string): Promise<void> {
@@ -120,7 +143,16 @@ export class TerminalInputInjector {
       if (!hasCommand('xdotool')) {
         throw new Error('xdotool not found. Install with: sudo apt install xdotool');
       }
-      await execAsync(`xdotool key ${key}`);
+      // Validate key name to prevent injection
+      if (!TerminalInputInjector.ALLOWED_KEYS.has(key)) {
+        throw new Error(`Invalid key name: ${key}`);
+      }
+      // Use spawn with array args
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn('xdotool', ['key', key], { stdio: 'ignore' });
+        proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`xdotool failed`)));
+        proc.on('error', reject);
+      });
       return;
     }
 
@@ -245,21 +277,33 @@ end tell`;
    * Types text using ydotool (works on all Wayland compositors)
    */
   private async typeYdotool(text: string, pressEnter: boolean): Promise<void> {
-    // Escape special characters for shell
-    const escapedText = text
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"')
-      .replace(/`/g, '\\`')
-      .replace(/\$/g, '\\$');
-
-    // ydotool type with delay for reliability
-    await execAsync(`ydotool type --key-delay 5 -- "${escapedText}"`);
+    // Use spawn with array args - no shell escaping needed
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn('ydotool', ['type', '--key-delay', '5', '--', text], { stdio: 'ignore' });
+      proc.on('close', (code) => code === 0 ? resolve() : reject(new Error('ydotool failed')));
+      proc.on('error', reject);
+    });
 
     if (pressEnter) {
       await this.delay(50);
       // Enter key: scancode 28
-      await execAsync('ydotool key 28:1 28:0');
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn('ydotool', ['key', '28:1', '28:0'], { stdio: 'ignore' });
+        proc.on('close', (code) => code === 0 ? resolve() : reject(new Error('ydotool key failed')));
+        proc.on('error', reject);
+      });
     }
+  }
+
+  /**
+   * Run wtype with spawn (safe from injection)
+   */
+  private async runWtype(args: string[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('wtype', args, { stdio: 'ignore' });
+      proc.on('close', (code) => code === 0 ? resolve() : reject(new Error('wtype failed')));
+      proc.on('error', reject);
+    });
   }
 
   /**
@@ -271,11 +315,11 @@ end tell`;
     await this.delay(50);
 
     // Paste with Ctrl+Shift+V
-    await execAsync('wtype -M ctrl -M shift -k v -m shift -m ctrl');
+    await this.runWtype(['-M', 'ctrl', '-M', 'shift', '-k', 'v', '-m', 'shift', '-m', 'ctrl']);
 
     if (pressEnter) {
       await this.delay(50);
-      await execAsync('wtype -k Return');
+      await this.runWtype(['-k', 'Return']);
     }
   }
 
@@ -300,6 +344,32 @@ end tell`;
   }
 
   /**
+   * Safe terminal patterns for xdotool search (no special chars)
+   */
+  private static readonly SAFE_TERMINAL_PATTERNS = [
+    'gnome-terminal',
+    'konsole',
+    'xfce4-terminal',
+    'xterm',
+    'terminator',
+    'alacritty',
+    'kitty',
+    'tilix',
+    'Terminal',
+  ];
+
+  /**
+   * Run xdotool with spawn (safe from injection)
+   */
+  private async runXdotool(args: string[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('xdotool', args, { stdio: 'ignore' });
+      proc.on('close', (code) => code === 0 ? resolve() : reject(new Error('xdotool failed')));
+      proc.on('error', reject);
+    });
+  }
+
+  /**
    * Types text using xdotool on X11, with dotool fallback
    */
   private async typeX11(text: string, pressEnter: boolean): Promise<void> {
@@ -314,31 +384,13 @@ end tell`;
       );
     }
 
-    // Escape special characters for shell
-    const escapedText = text
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"')
-      .replace(/`/g, '\\`')
-      .replace(/\$/g, '\\$');
-
     try {
       // First, try to find and activate a terminal window
-      const terminalPatterns = [
-        'gnome-terminal',
-        'konsole',
-        'xfce4-terminal',
-        'xterm',
-        'terminator',
-        'alacritty',
-        'kitty',
-        'tilix',
-        'Terminal',
-      ];
-
       let activated = false;
-      for (const pattern of terminalPatterns) {
+      for (const pattern of TerminalInputInjector.SAFE_TERMINAL_PATTERNS) {
         try {
-          await execAsync(`xdotool search --name "${pattern}" windowactivate --sync 2>/dev/null`);
+          // Use spawn with array args to prevent injection
+          await this.runXdotool(['search', '--name', pattern, 'windowactivate', '--sync']);
           activated = true;
           break;
         } catch {
@@ -348,17 +400,18 @@ end tell`;
 
       if (!activated) {
         try {
-          await execAsync('xdotool getactivewindow');
+          await this.runXdotool(['getactivewindow']);
         } catch {
           throw new Error('No terminal window found. Please focus your terminal window.');
         }
       }
 
       await this.delay(100);
-      await execAsync(`xdotool type --clearmodifiers "${escapedText}"`);
+      // Use spawn with array args - text is passed directly, not through shell
+      await this.runXdotool(['type', '--clearmodifiers', '--', text]);
 
       if (pressEnter) {
-        await execAsync('xdotool key Return');
+        await this.runXdotool(['key', 'Return']);
       }
     } catch (error) {
       throw new Error(`Failed to inject text via xdotool: ${error}`);
@@ -444,9 +497,47 @@ end tell`;
 }
 
 /**
+ * Characters that could be dangerous when injected into a terminal
+ * These are shell metacharacters that could lead to command injection
+ */
+const DANGEROUS_CHARS = /[;&|`$(){}[\]<>\\!#*?~]/g;
+
+/**
+ * Sanitize voice input to prevent potential command injection
+ * Removes shell metacharacters that could be dangerous
+ */
+export function sanitizeVoiceInput(text: string): string {
+  if (!text) return '';
+
+  // Remove dangerous shell metacharacters
+  let sanitized = text.replace(DANGEROUS_CHARS, '');
+
+  // Remove any control characters
+  sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+
+  // Collapse multiple spaces
+  sanitized = sanitized.replace(/\s+/g, ' ').trim();
+
+  // Limit length to prevent extremely long inputs
+  const MAX_INPUT_LENGTH = 2000;
+  if (sanitized.length > MAX_INPUT_LENGTH) {
+    sanitized = sanitized.slice(0, MAX_INPUT_LENGTH);
+  }
+
+  return sanitized;
+}
+
+/**
  * Convenience function to send voice-transcribed text to Claude Code
+ * Sanitizes input before injection for security
  */
 export async function sendToClaudeCode(text: string): Promise<void> {
+  const sanitizedText = sanitizeVoiceInput(text);
+  if (!sanitizedText) {
+    console.warn('Voice input was empty after sanitization');
+    return;
+  }
+
   const injector = new TerminalInputInjector({ terminal: 'auto' });
-  await injector.type(text, true);
+  await injector.type(sanitizedText, true);
 }
