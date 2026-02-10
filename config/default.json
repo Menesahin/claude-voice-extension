@@ -1,7 +1,7 @@
 {
   "version": 1,
   "tts": {
-    "provider": "piper",
+    "provider": "macos-say",
     "autoSpeak": true,
     "maxSpeechLength": 5000,
     "skipCodeBlocks": true,
@@ -34,7 +34,7 @@
     "provider": "sherpa-onnx",
     "language": "en",
     "sherpaOnnx": {
-      "model": "whisper-base"
+      "model": "whisper-tiny"
     },
     "whisperLocal": {
       "model": "base",
@@ -46,7 +46,7 @@
   },
   "wakeWord": {
     "enabled": true,
-    "provider": "sherpa-onnx",
+    "provider": "openwakeword",
     "keyword": "jarvis",
     "sensitivity": 1.0,
     "playSound": true,
@@ -54,16 +54,10 @@
       "jarvis": [
         "▁JA R VI S",
         "▁JA R V I S",
-        "J AR VI S",
         "J A R VI S",
         "J A R V I S",
-        "▁JA R V IS",
-        "▁JAR VIS",
-        "JAR VIS",
-        "▁J AR VIS",
-        "J AR VIS",
-        "▁JAR V IS",
-        "JAR V IS"
+        "J AR V I S",
+        "J AR VI S"
       ],
       "claude": [
         "▁C L A U DE",
@@ -76,6 +70,11 @@
     },
     "picovoice": {
       "accessKey": ""
+    },
+    "openwakeword": {
+      "model": "hey_jarvis",
+      "threshold": 0.5,
+      "debug": false
     }
   },
   "notifications": {

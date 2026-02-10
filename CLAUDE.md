@@ -187,6 +187,22 @@ claude-voice setup            # Interactive setup wizard
 claude-voice doctor           # Full system diagnostics
 ```
 
+### Provider Presets
+```bash
+claude-voice openai              # Use OpenAI for TTS and STT (cloud, high quality)
+claude-voice openai --tts-only   # Only set TTS to OpenAI
+claude-voice openai --stt-only   # Only set STT to OpenAI
+claude-voice openai --voice nova # Specify voice (nova, alloy, echo, fable, onyx, shimmer)
+
+claude-voice local               # Use Piper TTS + Sherpa-ONNX STT (offline)
+claude-voice local --tts-only    # Only set TTS to Piper
+claude-voice local --stt-only    # Only set STT to Sherpa-ONNX
+claude-voice local --voice <id>  # Specify Piper voice (e.g., en_US-joe-medium)
+claude-voice local --download    # Configure and download required models
+
+claude-voice download-models     # Download models for current config
+```
+
 ### Configuration
 ```bash
 claude-voice config                    # View full configuration

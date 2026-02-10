@@ -14,7 +14,7 @@ Voice interface for Claude Code CLI. Speak commands, hear responses.
 
 - Speaks Claude's responses aloud (Text-to-Speech)
 - Transcribes your voice commands (Speech-to-Text)
-- Hands-free with wake word detection ("Jarvis")
+- Hands-free with wake word detection ("Hey Jarvis")
 - Works offline with local providers - no API keys required
 - Deep integration with Claude Code via hooks system
 
@@ -22,11 +22,14 @@ Voice interface for Claude Code CLI. Speak commands, hear responses.
 
 ```bash
 npm install -g claude-voice
-claude-voice setup
-claude-voice start
 ```
 
-Say **"Jarvis"** followed by your command, or press **Cmd+Shift+Space** (macOS) / **Ctrl+Shift+Space** (Linux).
+That's it! The extension auto-starts when you open Claude Code. Say **"Hey Jarvis"** followed by your command.
+
+**Upgrade voice quality:**
+- Better TTS: `claude-voice local --download` (Piper neural voices)
+- Best quality: `claude-voice openai` (requires API key)
+- Customize: `claude-voice setup`
 
 ## How It Works
 
@@ -59,7 +62,7 @@ Choose local (free, offline) or cloud providers:
 |------------|--------------|-------|
 | Text-to-Speech | Piper, macOS Say, espeak | OpenAI TTS, ElevenLabs |
 | Speech-to-Text | Sherpa-ONNX | OpenAI Whisper |
-| Wake Word | Sherpa-ONNX | Picovoice Porcupine |
+| Wake Word | openWakeWord, Sherpa-ONNX | Picovoice Porcupine |
 
 <details>
 <summary><strong>TTS Providers</strong></summary>
@@ -138,9 +141,20 @@ claude-voice config set stt.provider=openai
 <details>
 <summary><strong>Wake Word Providers</strong></summary>
 
-### Sherpa-ONNX (Default)
+### openWakeWord (Default)
 
-Local wake word detection. No API key required.
+Purpose-trained wake word detection with high accuracy. Requires Python 3. Installed automatically during setup.
+
+```bash
+claude-voice openwakeword --install            # Install/configure openWakeWord
+claude-voice config set wakeWord.provider=openwakeword
+```
+
+Available models: `hey_jarvis` (default), `alexa`, `hey_mycroft`, `hey_rhasspy`
+
+### Sherpa-ONNX KWS (Fallback)
+
+Local keyword spotting, no Python required. Used as fallback when Python is not available.
 
 ```bash
 claude-voice config set wakeWord.provider=sherpa-onnx
@@ -204,7 +218,7 @@ claude-voice config reset                  # Reset to defaults
 | Option | Default | Description |
 |--------|---------|-------------|
 | `wakeWord.enabled` | `true` | Enable wake word detection |
-| `wakeWord.provider` | `sherpa-onnx` | sherpa-onnx or picovoice |
+| `wakeWord.provider` | `openwakeword` | openwakeword, sherpa-onnx, or picovoice |
 | `wakeWord.keyword` | `jarvis` | Wake word: jarvis, claude, computer, etc. |
 | `wakeWord.sensitivity` | `0.5` | Detection sensitivity (0.0-1.0) |
 | `wakeWord.playSound` | `true` | Play sound on detection |
@@ -287,6 +301,14 @@ claude-voice status             # Check status
 claude-voice setup              # Interactive setup wizard
 claude-voice doctor             # Diagnose issues
 
+# Provider Presets (Quick Configuration)
+claude-voice openai             # Use OpenAI for TTS and STT (cloud)
+claude-voice openai --voice nova # Specify voice (nova, alloy, echo, fable, onyx, shimmer)
+claude-voice local              # Use Piper TTS + Sherpa-ONNX STT (offline)
+claude-voice local --download   # Configure and download required models
+claude-voice openwakeword       # Switch to openWakeWord (better wake word detection)
+claude-voice download-models    # Download models for current config
+
 # Models & Voices
 claude-voice model list         # List STT models
 claude-voice model download <id>
@@ -315,13 +337,14 @@ Run `claude-voice --help` for all 50+ commands.
 |---------|-------|-------|
 | TTS | Piper, Say, OpenAI, ElevenLabs | Piper, espeak, OpenAI, ElevenLabs |
 | STT | Sherpa-ONNX, OpenAI | Sherpa-ONNX, OpenAI |
-| Wake Word | Sherpa-ONNX, Picovoice | Sherpa-ONNX, Picovoice |
+| Wake Word | openWakeWord, Sherpa-ONNX, Picovoice | openWakeWord, Sherpa-ONNX, Picovoice |
 | Keyboard Shortcut | Cmd+Shift+Space | Ctrl+Shift+Space |
 | Terminal Injection | AppleScript | xdotool (X11), dotool (Wayland) |
 
 **Requirements:**
 - Node.js 18+
 - Microphone access
+- Python 3 (for openWakeWord; falls back to Sherpa-ONNX if unavailable)
 
 ## Troubleshooting
 
@@ -347,6 +370,7 @@ claude-voice config get tts.provider
 ```
 
 **Wake word not detecting**
+- Upgrade to openWakeWord: `claude-voice openwakeword --install`
 - Check microphone permissions in System Preferences
 - Run `claude-voice devices` to verify microphone
 - Adjust sensitivity: `claude-voice config set wakeWord.sensitivity=0.7`
@@ -375,6 +399,12 @@ claude-voice config get tts.provider
 
 ## Changelog
 
+### v1.5.0
+- **openWakeWord as default** - Purpose-trained "Hey Jarvis" model (200K+ samples) replaces generic Sherpa-ONNX KWS for much better wake word accuracy
+- **Smart provider detection** - Automatically uses openWakeWord when Python 3 is available, falls back to Sherpa-ONNX KWS otherwise
+- **espeak TTS provider** - Linux native TTS support
+- **Setup wizard upgrade** - All presets now prefer openWakeWord, Custom preset includes wake word provider choice
+
 ### v1.4.0
 - **License change** - Switched to PolyForm Noncommercial (commercial use restricted)
 
@@ -394,7 +424,6 @@ claude-voice config get tts.provider
 
 ### v1.3.3
 - **Linux support** - Full Linux platform support added
-- **OpenWakeWord removed** - Using only sherpa-onnx for wake word detection
 
 ## Contributing
 

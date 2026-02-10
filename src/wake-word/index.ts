@@ -6,6 +6,7 @@ import * as os from 'os';
 import { WakeWordConfig, RecordingConfig } from '../config';
 import { getPlatformCapabilities } from '../platform';
 import { PicovoiceDetector } from './picovoice-detector';
+import { OpenWakeWordDetector } from './openwakeword-detector';
 import { playSound } from '../utils/audio';
 import { calculateAmplitude, bufferToFloat32 } from '../utils/silence';
 
@@ -41,6 +42,11 @@ export function createWakeWordDetector(
   if (provider === 'picovoice') {
     console.log('Using Picovoice wake word detection');
     return new PicovoiceDetector(config, recordingConfig);
+  }
+
+  if (provider === 'openwakeword') {
+    console.log('Using openWakeWord wake word detection');
+    return new OpenWakeWordDetector(config, recordingConfig);
   }
 
   console.log('Using Sherpa-ONNX wake word detection');
@@ -422,3 +428,11 @@ export async function downloadKwsModel(): Promise<void> {
 // Backward compatibility - export the old class name as an alias
 export { SherpaOnnxDetector as WakeWordDetector };
 export { PicovoiceDetector };
+export { OpenWakeWordDetector };
+export {
+  isOpenWakeWordInstalled,
+  installOpenWakeWord,
+  downloadOpenWakeWordModel,
+  listOpenWakeWordModels,
+  OPENWAKEWORD_MODELS,
+} from './openwakeword-detector';

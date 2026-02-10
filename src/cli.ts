@@ -31,6 +31,13 @@ import {
   PIPER_VOICES,
   isPiperInstalled,
 } from './tts/providers/piper';
+import {
+  isOpenWakeWordInstalled,
+  installOpenWakeWord,
+  downloadOpenWakeWordModel,
+  listOpenWakeWordModels,
+  OPENWAKEWORD_MODELS,
+} from './wake-word';
 
 const API_URL = 'http://127.0.0.1:3456';
 const PID_FILE = path.join(process.env.HOME || '~', '.claude-voice', 'daemon.pid');
@@ -105,6 +112,60 @@ function findDaemonByPort(): number | null {
   }
 }
 
+/**
+ * Download required models/voices based on current configuration.
+ * Returns true if all required models are ready, false if downloads failed.
+ */
+async function downloadRequiredModels(options?: { silent?: boolean }): Promise<boolean> {
+  const config = loadConfig();
+  const silent = options?.silent ?? false;
+  let success = true;
+
+  // Check Piper TTS voice
+  if (config.tts.provider === 'piper') {
+    const voiceId = config.tts.piper?.voice || 'en_US-joe-medium';
+    const voices = listPiperVoices();
+    const voice = voices.find((v) => v.id === voiceId);
+
+    if (!voice?.installed) {
+      if (!silent) console.log(`\nDownloading Piper voice: ${voiceId}...`);
+      try {
+        await downloadVoice(voiceId);
+        if (!silent) console.log(`✓ Piper voice ready: ${voiceId}`);
+      } catch (error) {
+        console.error(`✗ Failed to download Piper voice: ${voiceId}`);
+        if (!silent) console.error(error);
+        success = false;
+      }
+    } else if (!silent) {
+      console.log(`✓ Piper voice already installed: ${voiceId}`);
+    }
+  }
+
+  // Check Sherpa-ONNX STT model
+  if (config.stt.provider === 'sherpa-onnx') {
+    const modelId = config.stt.sherpaOnnx?.model || 'whisper-small';
+    const models = listModels();
+    const model = models.find((m) => m.id === modelId);
+
+    if (!model?.installed) {
+      if (!silent) console.log(`\nDownloading STT model: ${modelId}...`);
+      try {
+        await downloadModel(modelId as keyof typeof SHERPA_MODELS);
+        if (!silent) console.log(`✓ STT model ready: ${modelId}`);
+      } catch (error) {
+        console.error(`✗ Failed to download STT model: ${modelId}`);
+        if (!silent) console.error(error);
+        success = false;
+      }
+    } else if (!silent) {
+      console.log(`✓ STT model already installed: ${modelId}`);
+    }
+  }
+
+  return success;
+}
+
 function checkHooksInstalled(): boolean {
   const settingsFile = path.join(process.env.HOME || '~', '.claude', 'settings.json');
   if (!fs.existsSync(settingsFile)) return false;
@@ -154,18 +215,27 @@ program
         fs.copyFileSync(defaultConfigPath, configFile);
       }
 
-      // Configure with defaults
+      // Configure with platform-aware defaults (zero-config TTS)
       try {
         const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
         config.tts = config.tts || {};
-        config.tts.provider = 'piper';
-        config.tts.piper = { voice: 'en_US-joe-medium', speaker: 0 };
+        config.tts.provider = process.platform === 'darwin' ? 'macos-say' : 'espeak';
         config.stt = config.stt || {};
         config.stt.provider = 'sherpa-onnx';
         config.stt.sherpaOnnx = config.stt.sherpaOnnx || {};
-        config.stt.sherpaOnnx.model = 'whisper-small';
+        config.stt.sherpaOnnx.model = 'whisper-tiny';
+        config.wakeWord = config.wakeWord || {};
+        // Smart wake word: prefer openWakeWord when available
+        if (isOpenWakeWordInstalled()) {
+          config.wakeWord.provider = 'openwakeword';
+          config.wakeWord.openwakeword = config.wakeWord.openwakeword || { model: 'hey_jarvis', threshold: 0.5, debug: false };
+        } else {
+          config.wakeWord.provider = 'sherpa-onnx';
+        }
         fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
-        console.log('  [+] Configured defaults (Piper TTS + Whisper STT)');
+        const ttsName = process.platform === 'darwin' ? 'macOS Say' : 'espeak';
+        const wwName = config.wakeWord.provider === 'openwakeword' ? 'openWakeWord' : 'Sherpa-ONNX KWS';
+        console.log(`  [+] Configured defaults (${ttsName} TTS + Sherpa-ONNX STT + ${wwName} wake word)`);
       } catch {
         // Ignore config errors
       }
@@ -180,6 +250,56 @@ program
 
     // Load env vars
     loadEnvVars();
+
+    // Validate providers and auto-download missing models
+    try {
+      const startConfig = loadConfig();
+
+      // Check TTS provider (warn only, don't block)
+      if (startConfig.tts.provider === 'piper' && !isPiperInstalled()) {
+        const nativeFallback = process.platform === 'darwin' ? 'macos-say' : 'espeak';
+        console.log(`\n  Warning: Piper TTS not installed.`);
+        console.log(`  Fix: claude-voice local --download`);
+        console.log(`  Or switch to native TTS: claude-voice config set tts.provider=${nativeFallback}\n`);
+      } else if (startConfig.tts.provider === 'openai' && !process.env.OPENAI_API_KEY) {
+        console.log('\n  Warning: OpenAI TTS requires OPENAI_API_KEY in ~/.claude-voice/.env\n');
+      } else if (startConfig.tts.provider === 'elevenlabs' && !process.env.ELEVENLABS_API_KEY) {
+        console.log('\n  Warning: ElevenLabs requires ELEVENLABS_API_KEY in ~/.claude-voice/.env\n');
+      }
+
+      // Auto-download STT model if missing (small models only)
+      if (startConfig.stt.provider === 'sherpa-onnx') {
+        const modelId = startConfig.stt.sherpaOnnx?.model || 'whisper-tiny';
+        const models = listModels();
+        const model = models.find((m) => m.id === modelId);
+        if (!model?.installed) {
+          console.log(`\n  STT model "${modelId}" not found. Downloading...`);
+          try {
+            await downloadRequiredModels();
+            console.log('');
+          } catch {
+            console.log(`  Download failed. Voice commands will not work until model is installed.`);
+            console.log(`  Run manually: claude-voice model download ${modelId}\n`);
+          }
+        }
+      }
+
+      // Check wake word provider readiness
+      if (startConfig.wakeWord.enabled && startConfig.wakeWord.provider === 'openwakeword') {
+        if (!isOpenWakeWordInstalled()) {
+          console.log('\n  Wake word provider "openwakeword" not installed. Attempting install...');
+          try {
+            await installOpenWakeWord();
+          } catch {
+            console.log('  Could not install openWakeWord. Falling back to Sherpa-ONNX KWS.');
+            console.log('  Install manually: pip install openwakeword\n');
+            setConfigValue('wakeWord.provider', 'sherpa-onnx');
+          }
+        }
+      }
+    } catch {
+      // Don't block startup for validation errors
+    }
 
     const isRunning = await checkDaemon();
 
@@ -406,227 +526,380 @@ program
 
 program
   .command('setup')
-  .description('Interactive first-run setup wizard')
+  .description('Interactive setup wizard')
   .action(async () => {
-    // Dynamically import to avoid issues if not installed
     const inquirer = await import('inquirer');
     const chalk = (await import('chalk')).default;
     const ora = (await import('ora')).default;
 
-    console.log(chalk.bold.blue('\n  Welcome to Claude Voice Extension Setup!\n'));
-    console.log('  This wizard will help you configure voice features for Claude Code.\n');
+    console.log(chalk.bold.blue('\n  Claude Voice Extension Setup\n'));
 
     const config = loadConfig();
     const caps = getPlatformCapabilities();
+    const nativeTTS = caps.platform === 'darwin' ? 'macos-say' : 'espeak';
+    const nativeTTSLabel = caps.platform === 'darwin' ? 'macOS Say' : 'espeak';
 
-    // Step 0: System Requirements Check (Linux and macOS)
-    if (caps.platform === 'linux' || caps.platform === 'darwin') {
-      console.log(chalk.bold('  Step 0: System Requirements\n'));
-
-      const { tools: missingTools, commands: installCommands } = detectMissingTools();
-
-      if (missingTools.length === 0) {
-        console.log(chalk.green('  ✓ All required system tools are installed\n'));
-      } else {
-        console.log(chalk.yellow(`  ⚠ Missing: ${missingTools.join(', ')}\n`));
-        console.log('  Install with:');
-        installCommands.forEach(cmd => console.log(chalk.cyan(`    ${cmd}`)));
-        console.log('');
-
-        if (caps.isWayland) {
-          console.log(chalk.dim('  Note: Wayland detected. Terminal injection requires dotool or ydotool.\n'));
-          console.log(chalk.dim('  dotool is recommended (simpler, no daemon needed).\n'));
-        }
-      }
-    }
-
-    // Step 1: Platform detection
-    console.log(chalk.bold('  Step 1: Platform Detection\n'));
-    console.log(`  Platform: ${caps.platform}${caps.isWayland ? ' (Wayland)' : caps.platform === 'linux' ? ' (X11)' : ''}`);
-    console.log(`  Native TTS: ${caps.nativeTTS ? caps.nativeTTSCommand : 'not available'}`);
-    console.log(`  Terminal Injection: ${caps.terminalInjection}\n`);
-
-    const instructions = getInstallInstructions();
-    if (instructions.length > 0 && caps.platform !== 'linux') {
-      // Linux instructions are shown in Step 0
-      console.log(chalk.yellow('  Missing dependencies:'));
-      instructions.forEach((i) => console.log(`    - ${i}`));
+    // Quick system check
+    const { tools: missingTools, commands: installCommands } = detectMissingTools();
+    if (missingTools.length > 0) {
+      console.log(chalk.yellow(`  Missing tools: ${missingTools.join(', ')}`));
+      installCommands.forEach(cmd => console.log(chalk.cyan(`    ${cmd}`)));
       console.log('');
     }
 
-    // Step 2: TTS Configuration
-    console.log(chalk.bold('  Step 2: Text-to-Speech Configuration\n'));
-
-    const ttsChoices = [];
-    if (caps.nativeTTS) {
-      ttsChoices.push({
-        name: `${caps.nativeTTSCommand} (built-in, no API key)`,
-        value: caps.platform === 'darwin' ? 'macos-say' : 'espeak',
-      });
-    }
-    ttsChoices.push(
-      { name: 'Piper TTS (free, local, high quality neural voices)', value: 'piper' },
-      { name: 'OpenAI TTS (high quality, requires API key)', value: 'openai' },
-      { name: 'ElevenLabs (premium voices, requires API key)', value: 'elevenlabs' },
-      { name: 'Disabled', value: 'disabled' }
-    );
-
-    const ttsAnswers = await inquirer.default.prompt([
+    // Main preset selection
+    const mainChoice = await inquirer.default.prompt([
       {
         type: 'list',
-        name: 'provider',
-        message: 'Which TTS provider would you like to use?',
-        choices: ttsChoices,
-        default: config.tts.provider,
-      },
-      {
-        type: 'confirm',
-        name: 'autoSpeak',
-        message: "Automatically speak Claude's responses?",
-        default: config.tts.autoSpeak,
-      },
-    ]);
-
-    config.tts.provider = ttsAnswers.provider;
-    config.tts.autoSpeak = ttsAnswers.autoSpeak;
-
-    // Step 3: STT Configuration
-    console.log(chalk.bold('\n  Step 3: Speech-to-Text Configuration\n'));
-
-    const sttAnswers = await inquirer.default.prompt([
-      {
-        type: 'list',
-        name: 'provider',
-        message: 'Which STT provider would you like to use?',
+        name: 'preset',
+        message: 'How would you like to set up Claude Voice?',
         choices: [
-          { name: 'Sherpa-ONNX (FREE, embedded, offline)', value: 'sherpa-onnx' },
-          { name: 'OpenAI Whisper API (fast, requires API key)', value: 'openai' },
-          { name: 'Local Whisper (free, requires Python)', value: 'whisper-local' },
-          { name: 'Disabled', value: 'disabled' },
+          {
+            name: `Just Works (recommended) - ${nativeTTSLabel} TTS + local STT, no API keys`,
+            value: 'native',
+          },
+          {
+            name: 'Better Quality - Piper neural TTS + larger Whisper model',
+            value: 'local',
+          },
+          {
+            name: 'Cloud (Best Quality) - OpenAI TTS + STT (requires API key)',
+            value: 'cloud',
+          },
+          {
+            name: 'Custom - Configure each provider manually',
+            value: 'custom',
+          },
         ],
-        default: config.stt.provider,
-      },
-      {
-        type: 'input',
-        name: 'language',
-        message: 'Default language code (e.g., en, tr, de):',
-        default: config.stt.language,
+        default: 'native',
       },
     ]);
 
-    config.stt.provider = sttAnswers.provider;
-    config.stt.language = sttAnswers.language;
+    if (mainChoice.preset === 'native') {
+      // ── Preset: Just Works ──
+      console.log(chalk.bold('\n  Preset: Just Works\n'));
 
-    // Step 4: Wake Word
-    console.log(chalk.bold('\n  Step 4: Wake Word Configuration\n'));
+      config.tts.provider = nativeTTS as 'macos-say' | 'espeak';
+      config.tts.autoSpeak = true;
+      config.stt.provider = 'sherpa-onnx';
+      config.stt.sherpaOnnx = { model: 'whisper-tiny' };
+      config.wakeWord.enabled = true;
+      // Smart wake word: prefer openWakeWord when available
+      if (isOpenWakeWordInstalled()) {
+        config.wakeWord.provider = 'openwakeword';
+        config.wakeWord.openwakeword = { model: 'hey_jarvis', threshold: 0.5, debug: false };
+      } else {
+        config.wakeWord.provider = 'sherpa-onnx';
+      }
+      if (!config.voiceOutput) {
+        config.voiceOutput = { enabled: true, abstractMarker: '<!-- TTS -->', maxAbstractLength: 200, promptTemplate: null };
+      }
+      config.voiceOutput.enabled = true;
+      config.notifications.enabled = true;
 
-    const wakeWordAnswers = await inquirer.default.prompt([
-      {
-        type: 'confirm',
-        name: 'enabled',
-        message: 'Enable wake word detection (say "Jarvis" to start speaking)?',
-        default: config.wakeWord.enabled,
-      },
-      {
-        type: 'confirm',
-        name: 'playSound',
-        message: 'Play sound when wake word is detected?',
-        default: config.wakeWord.playSound,
-        when: (answers: { enabled: boolean }) => answers.enabled,
-      },
-    ]);
+      const wakeWordLabel1 = config.wakeWord.provider === 'openwakeword' ? 'openWakeWord' : 'Sherpa-ONNX KWS';
+      console.log(`  TTS: ${nativeTTSLabel} (instant, no downloads)`);
+      console.log('  STT: Sherpa-ONNX whisper-tiny (75MB)');
+      console.log(`  Wake Word: ${wakeWordLabel1}\n`);
 
-    config.wakeWord.enabled = wakeWordAnswers.enabled;
-    if ((wakeWordAnswers as { playSound?: boolean }).playSound !== undefined) {
-      config.wakeWord.playSound = (wakeWordAnswers as { playSound?: boolean }).playSound!;
-    }
+      // Download whisper-tiny if needed
+      const models = listModels();
+      const tinyModel = models.find((m) => m.id === 'whisper-tiny');
+      if (!tinyModel?.installed) {
+        const dlAnswer = await inquirer.default.prompt([
+          {
+            type: 'confirm',
+            name: 'download',
+            message: 'Download whisper-tiny STT model now? (75MB, needed for voice commands)',
+            default: true,
+          },
+        ]);
+        if (dlAnswer.download) {
+          const spinner = ora('Downloading whisper-tiny model (75MB)...').start();
+          try {
+            await downloadModel('whisper-tiny');
+            spinner.succeed('STT model ready');
+          } catch {
+            spinner.fail('Download failed. Run later: claude-voice model download whisper-tiny');
+          }
+        }
+      } else {
+        console.log(chalk.green('  STT model already installed'));
+      }
+    } else if (mainChoice.preset === 'local') {
+      // ── Preset: Better Quality ──
+      console.log(chalk.bold('\n  Preset: Better Quality (Local)\n'));
 
-    // Step 5: Voice Notifications
-    console.log(chalk.bold('\n  Step 5: Voice Notifications\n'));
+      config.tts.provider = 'piper';
+      config.tts.piper = { voice: 'en_US-joe-medium', speaker: 0 };
+      config.tts.autoSpeak = true;
+      config.stt.provider = 'sherpa-onnx';
+      config.stt.sherpaOnnx = { model: 'whisper-small' };
+      config.wakeWord.enabled = true;
+      // Smart wake word: prefer openWakeWord when available
+      if (isOpenWakeWordInstalled()) {
+        config.wakeWord.provider = 'openwakeword';
+        config.wakeWord.openwakeword = { model: 'hey_jarvis', threshold: 0.5, debug: false };
+      } else {
+        config.wakeWord.provider = 'sherpa-onnx';
+      }
+      if (!config.voiceOutput) {
+        config.voiceOutput = { enabled: true, abstractMarker: '<!-- TTS -->', maxAbstractLength: 200, promptTemplate: null };
+      }
+      config.voiceOutput.enabled = true;
+      config.notifications.enabled = true;
 
-    const notifAnswers = await inquirer.default.prompt([
-      {
-        type: 'confirm',
-        name: 'enabled',
-        message: 'Enable voice notifications (permission prompts, etc.)?',
-        default: config.notifications.enabled,
-      },
-    ]);
+      const wakeWordLabel2 = config.wakeWord.provider === 'openwakeword' ? 'openWakeWord' : 'Sherpa-ONNX KWS';
+      console.log('  TTS: Piper (high-quality neural voices)');
+      console.log('  STT: Sherpa-ONNX whisper-small (488MB, best accuracy)');
+      console.log(`  Wake Word: ${wakeWordLabel2}\n`);
 
-    config.notifications.enabled = notifAnswers.enabled;
+      // Check Piper readiness
+      if (!isPiperInstalled()) {
+        console.log(chalk.yellow('  Piper TTS is not installed yet.'));
+        console.log(chalk.cyan('  After setup, run: claude-voice local --download\n'));
+      }
 
-    // Step 6: Voice Output Formatting
-    console.log(chalk.bold('\n  Step 6: Voice Output Formatting\n'));
-    console.log('  This feature makes Claude structure responses with TTS-friendly summaries.');
-    console.log('  Claude will add a spoken abstract at the start of each response.\n');
+      // Download whisper-small if needed
+      const models = listModels();
+      const smallModel = models.find((m) => m.id === 'whisper-small');
+      if (!smallModel?.installed) {
+        const dlAnswer = await inquirer.default.prompt([
+          {
+            type: 'confirm',
+            name: 'download',
+            message: 'Download whisper-small STT model now? (488MB)',
+            default: true,
+          },
+        ]);
+        if (dlAnswer.download) {
+          const spinner = ora('Downloading whisper-small model (488MB)...').start();
+          try {
+            await downloadModel('whisper-small');
+            spinner.succeed('STT model ready');
+          } catch {
+            spinner.fail('Download failed. Run later: claude-voice model download whisper-small');
+          }
+        }
+      } else {
+        console.log(chalk.green('  STT model already installed'));
+      }
+    } else if (mainChoice.preset === 'cloud') {
+      // ── Preset: Cloud ──
+      console.log(chalk.bold('\n  Preset: Cloud (Best Quality)\n'));
 
-    const voiceOutputAnswers = await inquirer.default.prompt([
-      {
-        type: 'confirm',
-        name: 'enabled',
-        message: 'Enable voice-friendly output formatting?',
-        default: config.voiceOutput?.enabled !== false,
-      },
-    ]);
+      config.tts.provider = 'openai';
+      config.tts.openai = { model: 'tts-1', voice: 'nova', speed: 1.0 };
+      config.tts.autoSpeak = true;
+      config.stt.provider = 'openai';
+      config.wakeWord.enabled = true;
+      // Smart wake word: prefer openWakeWord when available
+      if (isOpenWakeWordInstalled()) {
+        config.wakeWord.provider = 'openwakeword';
+        config.wakeWord.openwakeword = { model: 'hey_jarvis', threshold: 0.5, debug: false };
+      } else {
+        config.wakeWord.provider = 'sherpa-onnx';
+      }
+      if (!config.voiceOutput) {
+        config.voiceOutput = { enabled: true, abstractMarker: '<!-- TTS -->', maxAbstractLength: 200, promptTemplate: null };
+      }
+      config.voiceOutput.enabled = true;
+      config.notifications.enabled = true;
 
-    if (!config.voiceOutput) {
-      config.voiceOutput = {
-        enabled: true,
-        abstractMarker: '<!-- TTS -->',
-        maxAbstractLength: 200,
-        promptTemplate: null,
-      };
-    }
-    config.voiceOutput.enabled = voiceOutputAnswers.enabled;
+      const wakeWordLabel3 = config.wakeWord.provider === 'openwakeword' ? 'openWakeWord' : 'Sherpa-ONNX KWS';
+      console.log('  TTS: OpenAI (requires API key)');
+      console.log('  STT: OpenAI Whisper API (requires API key)');
+      console.log(`  Wake Word: ${wakeWordLabel3} (local)\n`);
 
-    // Step 7: Install hooks
-    console.log(chalk.bold('\n  Step 7: Claude Code Integration\n'));
+      // Ask for API key
+      loadEnvVars();
+      const hasKey = !!process.env.OPENAI_API_KEY;
+      if (!hasKey) {
+        const apiKeyAnswer = await inquirer.default.prompt([
+          {
+            type: 'password',
+            name: 'apiKey',
+            message: 'Enter your OpenAI API key (or press Enter to skip):',
+          },
+        ]);
 
-    const hooksInstalled = checkHooksInstalled();
-    if (!hooksInstalled) {
-      const hookAnswers = await inquirer.default.prompt([
+        if (apiKeyAnswer.apiKey) {
+          const envPath = getEnvFilePath();
+          const envDir = path.dirname(envPath);
+          if (!fs.existsSync(envDir)) {
+            fs.mkdirSync(envDir, { recursive: true });
+          }
+          // Append or create .env
+          let envContent = '';
+          if (fs.existsSync(envPath)) {
+            envContent = fs.readFileSync(envPath, 'utf-8');
+            if (!envContent.endsWith('\n')) envContent += '\n';
+          }
+          envContent += `OPENAI_API_KEY=${apiKeyAnswer.apiKey}\n`;
+          fs.writeFileSync(envPath, envContent);
+          console.log(chalk.green(`\n  API key saved to ${envPath}\n`));
+        } else {
+          console.log(chalk.yellow('\n  No API key provided. Set it later in ~/.claude-voice/.env\n'));
+        }
+      } else {
+        console.log(chalk.green('  OpenAI API key already configured'));
+      }
+    } else {
+      // ── Custom Setup ──
+      console.log(chalk.bold('\n  Custom Setup\n'));
+
+      const ttsChoices = [];
+      if (caps.nativeTTS) {
+        ttsChoices.push({
+          name: `${caps.nativeTTSCommand} (built-in, instant)`,
+          value: nativeTTS,
+        });
+      }
+      ttsChoices.push(
+        { name: 'Piper (local, high quality neural voices)', value: 'piper' },
+        { name: 'OpenAI TTS (cloud, requires API key)', value: 'openai' },
+        { name: 'ElevenLabs (cloud, requires API key)', value: 'elevenlabs' },
+        { name: 'Disabled', value: 'disabled' }
+      );
+
+      const customAnswers = await inquirer.default.prompt([
+        {
+          type: 'list',
+          name: 'ttsProvider',
+          message: 'TTS Provider:',
+          choices: ttsChoices,
+          default: config.tts.provider,
+        },
+        {
+          type: 'list',
+          name: 'sttProvider',
+          message: 'STT Provider:',
+          choices: [
+            { name: 'Sherpa-ONNX (local, offline)', value: 'sherpa-onnx' },
+            { name: 'OpenAI Whisper API (cloud)', value: 'openai' },
+            { name: 'Local Whisper (Python)', value: 'whisper-local' },
+            { name: 'Disabled', value: 'disabled' },
+          ],
+          default: config.stt.provider,
+        },
+        {
+          type: 'list',
+          name: 'sttModel',
+          message: 'Whisper model size:',
+          choices: [
+            { name: 'whisper-tiny (75MB, fast)', value: 'whisper-tiny' },
+            { name: 'whisper-base (142MB, better)', value: 'whisper-base' },
+            { name: 'whisper-small (488MB, best)', value: 'whisper-small' },
+          ],
+          default: config.stt.sherpaOnnx?.model || 'whisper-tiny',
+          when: (answers: { sttProvider: string }) => answers.sttProvider === 'sherpa-onnx',
+        },
+        {
+          type: 'input',
+          name: 'language',
+          message: 'Language code (en, tr, de, fr, es, etc.):',
+          default: config.stt.language,
+        },
         {
           type: 'confirm',
-          name: 'install',
-          message: 'Install Claude Code hooks now?',
-          default: true,
+          name: 'wakeWord',
+          message: 'Enable wake word detection?',
+          default: config.wakeWord.enabled,
+        },
+        {
+          type: 'list',
+          name: 'wakeWordProvider',
+          message: 'Wake word engine:',
+          choices: [
+            { name: 'openWakeWord (recommended, requires Python)', value: 'openwakeword' },
+            { name: 'Sherpa-ONNX KWS (no Python needed, lower accuracy)', value: 'sherpa-onnx' },
+            { name: 'Picovoice (best accuracy, requires API key)', value: 'picovoice' },
+          ],
+          default: isOpenWakeWordInstalled() ? 'openwakeword' : 'sherpa-onnx',
+          when: (a: { wakeWord: boolean }) => a.wakeWord === true,
         },
       ]);
 
-      if (hookAnswers.install) {
-        const spinner = ora('Installing hooks...').start();
-        try {
-          installHooksHelper();
-          spinner.succeed('Hooks installed successfully');
-        } catch (error) {
-          spinner.fail('Failed to install hooks');
-          console.error(error);
+      const answers = customAnswers as Record<string, string | boolean>;
+      config.tts.provider = answers.ttsProvider as typeof config.tts.provider;
+      config.tts.autoSpeak = true;
+      config.stt.provider = answers.sttProvider as typeof config.stt.provider;
+      config.stt.language = answers.language as string;
+      if (answers.sttModel) {
+        config.stt.sherpaOnnx = { model: answers.sttModel as typeof config.stt.sherpaOnnx.model };
+      }
+      config.wakeWord.enabled = answers.wakeWord as boolean;
+      if (answers.wakeWord && answers.wakeWordProvider) {
+        config.wakeWord.provider = answers.wakeWordProvider as typeof config.wakeWord.provider;
+        if (answers.wakeWordProvider === 'openwakeword') {
+          config.wakeWord.openwakeword = { model: 'hey_jarvis', threshold: 0.5, debug: false };
         }
+      } else {
+        config.wakeWord.provider = 'sherpa-onnx';
+      }
+      if (!config.voiceOutput) {
+        config.voiceOutput = { enabled: true, abstractMarker: '<!-- TTS -->', maxAbstractLength: 200, promptTemplate: null };
+      }
+      config.voiceOutput.enabled = true;
+      config.notifications.enabled = true;
+    }
+
+    // If openWakeWord chosen but not installed, offer to install
+    if (config.wakeWord.enabled && config.wakeWord.provider === 'openwakeword' && !isOpenWakeWordInstalled()) {
+      const owwAnswer = await inquirer.default.prompt([
+        {
+          type: 'confirm',
+          name: 'install',
+          message: 'openWakeWord not installed. Install now? (pip install openwakeword)',
+          default: true,
+        },
+      ]);
+      if (owwAnswer.install) {
+        const owwSpinner = ora('Installing openWakeWord...').start();
+        try {
+          await installOpenWakeWord();
+          owwSpinner.succeed('openWakeWord installed');
+        } catch {
+          owwSpinner.fail('Failed to install openWakeWord. Falling back to Sherpa-ONNX KWS.');
+          config.wakeWord.provider = 'sherpa-onnx';
+        }
+      } else {
+        console.log(chalk.yellow('  Falling back to Sherpa-ONNX KWS for wake word detection.'));
+        config.wakeWord.provider = 'sherpa-onnx';
+      }
+    }
+
+    // Install hooks if needed
+    console.log('');
+    if (!checkHooksInstalled()) {
+      const hookSpinner = ora('Installing Claude Code hooks...').start();
+      try {
+        installHooksHelper();
+        hookSpinner.succeed('Hooks installed');
+      } catch (error) {
+        hookSpinner.fail('Failed to install hooks');
+        console.error(error);
       }
     } else {
-      console.log('  Hooks are already installed.\n');
+      console.log(chalk.green('  Hooks already installed'));
     }
 
     // Save configuration
-    const spinner = ora('Saving configuration...').start();
+    const saveSpinner = ora('Saving configuration...').start();
     saveConfig(config);
-    spinner.succeed('Configuration saved');
+    saveSpinner.succeed('Configuration saved');
 
     // Summary
     console.log(chalk.bold.green('\n  Setup Complete!\n'));
     console.log('  Your configuration:');
-    console.log(`    TTS Provider: ${config.tts.provider}`);
-    console.log(`    Auto-Speak: ${config.tts.autoSpeak ? 'enabled' : 'disabled'}`);
-    console.log(`    STT Provider: ${config.stt.provider}`);
-    console.log(`    Language: ${config.stt.language}`);
-    console.log(`    Wake Word: ${config.wakeWord.enabled ? 'enabled' : 'disabled'}`);
-    console.log(`    Notifications: ${config.notifications.enabled ? 'enabled' : 'disabled'}`);
-    console.log(`    Voice Output: ${config.voiceOutput?.enabled ? 'enabled' : 'disabled'}`);
+    console.log(`    TTS: ${config.tts.provider}`);
+    console.log(`    STT: ${config.stt.provider}`);
+    console.log(`    Wake Word: ${config.wakeWord.enabled ? config.wakeWord.provider : 'disabled'}`);
 
     console.log(chalk.bold('\n  Next Steps:\n'));
-    console.log('    1. Start the daemon:  claude-voice start');
-    console.log('    2. Test TTS:          claude-voice test-tts "Hello world"');
-    console.log('    3. Check status:      claude-voice status\n');
+    console.log('    1. Start daemon:  claude-voice start');
+    console.log('    2. Test TTS:      claude-voice test-tts "Hello world"');
+    console.log('    3. Say "Jarvis" followed by your command\n');
   });
 
 // ============================================================================
@@ -635,12 +908,15 @@ program
 
 program
   .command('doctor')
-  .description('Diagnose issues and check dependencies')
+  .description('Diagnose issues, check dependencies, and auto-fix')
   .action(async () => {
+    const inquirer = await import('inquirer');
     const chalk = (await import('chalk')).default;
     const ora = (await import('ora')).default;
 
     console.log(chalk.bold('\n  Claude Voice Extension - System Check\n'));
+
+    const issues: { label: string; fix?: string; autoFix?: () => Promise<void> }[] = [];
 
     // Check Node.js version
     let spinner = ora('Checking Node.js version...').start();
@@ -650,6 +926,7 @@ program
       spinner.succeed(`Node.js: ${nodeVersion}`);
     } else {
       spinner.fail(`Node.js: ${nodeVersion} (requires >= 18.0.0)`);
+      issues.push({ label: 'Node.js version too old', fix: 'Install Node.js 18+' });
     }
 
     // Check platform
@@ -672,6 +949,7 @@ program
         spinner.warn(`System tools: missing ${missingTools.join(', ')}`);
         console.log(chalk.dim('    Install with:'));
         installCommands.forEach(cmd => console.log(chalk.dim(`      ${cmd}`)));
+        issues.push({ label: `Missing tools: ${missingTools.join(', ')}`, fix: installCommands.join(' && ') });
       }
     }
 
@@ -681,6 +959,9 @@ program
       spinner.succeed(`Native TTS: ${caps.nativeTTSCommand}`);
     } else {
       spinner.warn('Native TTS: not available');
+      if (caps.platform === 'linux') {
+        issues.push({ label: 'espeak not installed', fix: 'sudo apt install espeak-ng' });
+      }
     }
 
     // Check terminal injection
@@ -697,11 +978,14 @@ program
 
     // Check config
     spinner = ora('Checking configuration...').start();
+    let config;
     try {
-      const config = loadConfig();
+      config = loadConfig();
       spinner.succeed(`Configuration: ${getConfigPath()}`);
+      console.log(chalk.dim(`    TTS: ${config.tts.provider} | STT: ${config.stt.provider} | Wake Word: ${config.wakeWord.enabled ? config.wakeWord.provider : 'disabled'}`));
     } catch (error) {
       spinner.fail('Configuration: invalid or missing');
+      issues.push({ label: 'Config invalid', fix: 'claude-voice config reset' });
     }
 
     // Check hooks
@@ -709,7 +993,12 @@ program
     if (checkHooksInstalled()) {
       spinner.succeed('Hooks: installed');
     } else {
-      spinner.warn('Hooks: not installed (run: claude-voice hooks install)');
+      spinner.warn('Hooks: not installed');
+      issues.push({
+        label: 'Hooks not installed',
+        fix: 'claude-voice hooks install',
+        autoFix: async () => { installHooksHelper(); },
+      });
     }
 
     // Check API keys
@@ -722,6 +1011,129 @@ program
       console.log(`    ${key}: ${status} (${source})`);
     }
 
+    // Check STT model
+    if (config && config.stt.provider === 'sherpa-onnx') {
+      spinner = ora('Checking STT model...').start();
+      const modelId = config.stt.sherpaOnnx?.model || 'whisper-tiny';
+      const models = listModels();
+      const model = models.find((m) => m.id === modelId);
+      if (model?.installed) {
+        spinner.succeed(`STT model: ${modelId} (installed)`);
+      } else {
+        spinner.warn(`STT model: ${modelId} (not downloaded)`);
+        issues.push({
+          label: `STT model ${modelId} not downloaded`,
+          fix: `claude-voice model download ${modelId}`,
+          autoFix: async () => { await downloadModel(modelId as keyof typeof SHERPA_MODELS); },
+        });
+      }
+    }
+
+    // Check wake word provider
+    if (config && config.wakeWord.enabled) {
+      spinner = ora('Checking wake word...').start();
+
+      if (config.wakeWord.provider === 'openwakeword') {
+        if (isOpenWakeWordInstalled()) {
+          spinner.succeed('Wake word: openWakeWord (installed)');
+        } else {
+          spinner.warn('Wake word: openWakeWord (not installed)');
+          issues.push({
+            label: 'openWakeWord Python package not installed',
+            fix: 'pip install openwakeword',
+            autoFix: async () => { await installOpenWakeWord(); },
+          });
+        }
+      } else if (config.wakeWord.provider === 'sherpa-onnx') {
+        const kwsPath = path.join(
+          getConfigDir(),
+          'models',
+          'sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01'
+        );
+        if (fs.existsSync(kwsPath)) {
+          spinner.succeed('Wake word: Sherpa-ONNX KWS (installed)');
+          console.log(chalk.dim('    Tip: Upgrade to openWakeWord for better accuracy: claude-voice openwakeword --install'));
+        } else {
+          spinner.warn('Wake word: Sherpa-ONNX KWS model not downloaded');
+          issues.push({
+            label: 'Wake word model not downloaded',
+            fix: 'claude-voice model download kws-zipformer-gigaspeech',
+          });
+        }
+      } else if (config.wakeWord.provider === 'picovoice') {
+        if (config.wakeWord.picovoice?.accessKey) {
+          spinner.succeed('Wake word: Picovoice (configured)');
+        } else {
+          spinner.warn('Wake word: Picovoice (access key missing)');
+          issues.push({ label: 'Picovoice access key not configured', fix: 'Get free key at picovoice.ai' });
+        }
+      } else {
+        spinner.info(`Wake word: ${config.wakeWord.provider}`);
+      }
+    }
+
+    // Check TTS provider readiness
+    if (config) {
+      spinner = ora('Checking TTS provider...').start();
+      if (config.tts.provider === 'piper') {
+        if (isPiperInstalled()) {
+          const voices = listPiperVoices();
+          const voiceId = config.tts.piper?.voice || 'en_US-joe-medium';
+          const voice = voices.find((v) => v.id === voiceId);
+          if (voice?.installed) {
+            spinner.succeed(`TTS: Piper (voice: ${voiceId})`);
+          } else {
+            spinner.warn(`TTS: Piper installed but voice ${voiceId} missing`);
+            issues.push({
+              label: `Piper voice ${voiceId} not downloaded`,
+              fix: `claude-voice voice download ${voiceId}`,
+              autoFix: async () => { await downloadVoice(voiceId); },
+            });
+          }
+        } else {
+          spinner.warn('TTS: Piper not installed');
+          issues.push({
+            label: 'Piper TTS not installed',
+            fix: 'claude-voice local --download',
+          });
+        }
+      } else if (config.tts.provider === 'openai') {
+        if (process.env.OPENAI_API_KEY) {
+          spinner.succeed('TTS: OpenAI (API key configured)');
+        } else {
+          spinner.warn('TTS: OpenAI (API key missing)');
+          issues.push({ label: 'OpenAI API key not configured', fix: 'Add OPENAI_API_KEY to ~/.claude-voice/.env' });
+        }
+      } else if (config.tts.provider === 'elevenlabs') {
+        if (process.env.ELEVENLABS_API_KEY) {
+          spinner.succeed('TTS: ElevenLabs (API key configured)');
+        } else {
+          spinner.warn('TTS: ElevenLabs (API key missing)');
+          issues.push({ label: 'ElevenLabs API key not configured', fix: 'Add ELEVENLABS_API_KEY to ~/.claude-voice/.env' });
+        }
+      } else if (config.tts.provider === 'macos-say') {
+        if (process.platform === 'darwin') {
+          spinner.succeed('TTS: macOS Say (built-in)');
+        } else {
+          spinner.warn('TTS: macOS Say (not available on Linux)');
+          issues.push({
+            label: 'macOS Say not available on Linux',
+            fix: 'claude-voice config set tts.provider=espeak',
+          });
+        }
+      } else if (config.tts.provider === 'espeak') {
+        try {
+          execSync('which espeak-ng 2>/dev/null || which espeak 2>/dev/null', { stdio: 'ignore' });
+          spinner.succeed('TTS: espeak (installed)');
+        } catch {
+          spinner.warn('TTS: espeak (not installed)');
+          issues.push({ label: 'espeak not installed', fix: 'sudo apt install espeak-ng' });
+        }
+      } else {
+        spinner.succeed(`TTS: ${config.tts.provider}`);
+      }
+    }
+
     // Check daemon
     spinner = ora('Checking daemon...').start();
     const isRunning = await checkDaemon();
@@ -731,7 +1143,50 @@ program
       spinner.info('Daemon: not running');
     }
 
+    // Summary and auto-fix
     console.log('');
+    if (issues.length === 0) {
+      console.log(chalk.bold.green('  All checks passed! Claude Voice is ready to use.\n'));
+    } else {
+      console.log(chalk.bold.yellow(`  Found ${issues.length} issue${issues.length > 1 ? 's' : ''}:\n`));
+      issues.forEach((issue, i) => {
+        console.log(`    ${i + 1}. ${issue.label}`);
+        if (issue.fix) {
+          console.log(chalk.dim(`       Fix: ${issue.fix}`));
+        }
+      });
+
+      // Offer auto-fix for issues that support it
+      const fixableIssues = issues.filter((i) => i.autoFix);
+      if (fixableIssues.length > 0) {
+        console.log('');
+        const fixAnswer = await inquirer.default.prompt([
+          {
+            type: 'confirm',
+            name: 'autoFix',
+            message: `Auto-fix ${fixableIssues.length} issue${fixableIssues.length > 1 ? 's' : ''} now?`,
+            default: true,
+          },
+        ]);
+
+        if (fixAnswer.autoFix) {
+          for (const issue of fixableIssues) {
+            const fixSpinner = ora(`Fixing: ${issue.label}...`).start();
+            try {
+              await issue.autoFix!();
+              fixSpinner.succeed(`Fixed: ${issue.label}`);
+            } catch (error) {
+              fixSpinner.fail(`Failed: ${issue.label}`);
+              if (issue.fix) {
+                console.log(chalk.dim(`    Manual fix: ${issue.fix}`));
+              }
+            }
+          }
+          console.log(chalk.green('\n  Auto-fix complete! Run "claude-voice doctor" again to verify.\n'));
+        }
+      }
+      console.log('');
+    }
   });
 
 // ============================================================================
@@ -871,6 +1326,70 @@ pluginCommand
     } else {
       console.log('Status: Not installed');
       console.log('Run: claude-voice plugin install');
+    }
+  });
+
+// ============================================================================
+// Provider Preset Commands
+// ============================================================================
+
+program
+  .command('openai')
+  .description('Configure OpenAI for TTS and STT (cloud-based, high quality)')
+  .option('--tts-only', 'Only configure TTS provider')
+  .option('--stt-only', 'Only configure STT provider')
+  .option('--voice <voice>', 'TTS voice (nova, alloy, echo, fable, onyx, shimmer)', 'nova')
+  .action((options) => {
+    if (!options.sttOnly) {
+      setConfigValue('tts.provider', 'openai');
+      setConfigValue('tts.openai.voice', options.voice);
+      console.log(`✓ TTS provider set to: openai (voice: ${options.voice})`);
+    }
+    if (!options.ttsOnly) {
+      setConfigValue('stt.provider', 'openai');
+      console.log('✓ STT provider set to: openai');
+    }
+    console.log('\nNote: OPENAI_API_KEY required in ~/.claude-voice/.env');
+    console.log("Run 'claude-voice restart' to apply changes.");
+  });
+
+program
+  .command('local')
+  .description('Configure local/offline providers (Piper TTS + Sherpa-ONNX STT)')
+  .option('--tts-only', 'Only configure TTS provider')
+  .option('--stt-only', 'Only configure STT provider')
+  .option('--voice <voice>', 'Piper voice ID', 'en_US-joe-medium')
+  .option('--download', 'Download required models after configuring')
+  .action(async (options) => {
+    if (!options.sttOnly) {
+      setConfigValue('tts.provider', 'piper');
+      setConfigValue('tts.piper.voice', options.voice);
+      console.log(`✓ TTS provider set to: piper (voice: ${options.voice})`);
+    }
+    if (!options.ttsOnly) {
+      setConfigValue('stt.provider', 'sherpa-onnx');
+      console.log('✓ STT provider set to: sherpa-onnx');
+    }
+
+    if (options.download) {
+      await downloadRequiredModels();
+    } else {
+      console.log("\nTip: Run 'claude-voice download-models' to download required models.");
+    }
+    console.log("Run 'claude-voice restart' to apply changes.");
+  });
+
+program
+  .command('download-models')
+  .description('Download required models/voices based on current configuration')
+  .action(async () => {
+    console.log('Checking required models for current configuration...');
+    const success = await downloadRequiredModels();
+    if (success) {
+      console.log('\nAll required models are ready.');
+    } else {
+      console.error('\nSome models failed to download. Check errors above.');
+      process.exit(1);
     }
   });
 
@@ -1296,6 +1815,169 @@ modelCommand
       console.error(chalk.red('Failed to remove model:'), error);
       process.exit(1);
     }
+  });
+
+// ============================================================================
+// Wake Word Commands (openWakeWord)
+// ============================================================================
+
+const wakeWordCommand = program.command('wakeword').description('Manage wake word detection');
+
+wakeWordCommand
+  .command('status')
+  .description('Check wake word detection status')
+  .action(async () => {
+    const chalk = (await import('chalk')).default;
+    const config = loadConfig();
+
+    console.log(chalk.bold('\n  Wake Word Detection Status\n'));
+
+    const enabled = config.wakeWord?.enabled !== false;
+    const provider = config.wakeWord?.provider || 'sherpa-onnx';
+
+    console.log(`  Enabled: ${enabled ? chalk.green('yes') : chalk.red('no')}`);
+    console.log(`  Provider: ${provider}`);
+    console.log(`  Keyword: ${config.wakeWord?.keyword || 'jarvis'}`);
+
+    if (provider === 'openwakeword') {
+      const model = config.wakeWord?.openwakeword?.model || 'hey_jarvis';
+      const threshold = config.wakeWord?.openwakeword?.threshold || 0.5;
+      const installed = isOpenWakeWordInstalled();
+
+      console.log(`\n  openWakeWord:`);
+      console.log(`    Installed: ${installed ? chalk.green('yes') : chalk.yellow('no')}`);
+      console.log(`    Model: ${model}`);
+      console.log(`    Threshold: ${threshold}`);
+
+      if (!installed) {
+        console.log(chalk.yellow('\n  To install: claude-voice wakeword install'));
+      }
+    } else if (provider === 'picovoice') {
+      const hasKey = !!(config.wakeWord?.picovoice?.accessKey || process.env.PICOVOICE_ACCESS_KEY);
+      console.log(`\n  Picovoice:`);
+      console.log(`    Access Key: ${hasKey ? chalk.green('configured') : chalk.yellow('not configured')}`);
+    }
+
+    console.log('');
+  });
+
+wakeWordCommand
+  .command('install')
+  .description('Install openWakeWord (Python package)')
+  .action(async () => {
+    const chalk = (await import('chalk')).default;
+    const ora = (await import('ora')).default;
+
+    if (isOpenWakeWordInstalled()) {
+      console.log(chalk.green('openWakeWord is already installed.'));
+      return;
+    }
+
+    const spinner = ora('Installing openWakeWord...').start();
+
+    try {
+      await installOpenWakeWord();
+      spinner.succeed('openWakeWord installed successfully!');
+      console.log('\nTo use openWakeWord:');
+      console.log('  claude-voice config set wakeWord.provider=openwakeword');
+      console.log('  claude-voice restart');
+    } catch (error) {
+      spinner.fail('Failed to install openWakeWord');
+      console.error(error);
+      process.exit(1);
+    }
+  });
+
+wakeWordCommand
+  .command('models')
+  .description('List available openWakeWord models')
+  .action(async () => {
+    const chalk = (await import('chalk')).default;
+    console.log(chalk.bold('\n  Available openWakeWord Models\n'));
+
+    const models = listOpenWakeWordModels();
+
+    for (const model of models) {
+      console.log(`  ${chalk.cyan(model.id)}`);
+      console.log(`    ${model.name}`);
+      console.log(`    ${chalk.dim(model.description)}`);
+      console.log('');
+    }
+
+    console.log('  To use a model:');
+    console.log('    claude-voice config set wakeWord.provider=openwakeword');
+    console.log('    claude-voice config set wakeWord.openwakeword.model=hey_jarvis');
+    console.log('');
+  });
+
+wakeWordCommand
+  .command('download <model-id>')
+  .description('Pre-download an openWakeWord model')
+  .action(async (modelId) => {
+    const chalk = (await import('chalk')).default;
+    const ora = (await import('ora')).default;
+
+    if (!OPENWAKEWORD_MODELS[modelId]) {
+      console.error(chalk.red(`Unknown model: ${modelId}`));
+      console.log('\nAvailable models:');
+      Object.keys(OPENWAKEWORD_MODELS).forEach((id) => console.log(`  - ${id}`));
+      process.exit(1);
+    }
+
+    if (!isOpenWakeWordInstalled()) {
+      console.error(chalk.red('openWakeWord is not installed.'));
+      console.log('Install it first: claude-voice wakeword install');
+      process.exit(1);
+    }
+
+    const spinner = ora(`Downloading model: ${modelId}...`).start();
+
+    try {
+      await downloadOpenWakeWordModel(modelId);
+      spinner.succeed(`Model ${modelId} downloaded successfully!`);
+    } catch (error) {
+      spinner.fail('Failed to download model');
+      console.error(error);
+      process.exit(1);
+    }
+  });
+
+// Convenience command to switch to openWakeWord
+program
+  .command('openwakeword')
+  .description('Configure openWakeWord for wake word detection (better accuracy)')
+  .option('--model <model>', 'Wake word model (hey_jarvis, alexa, hey_mycroft)', 'hey_jarvis')
+  .option('--threshold <threshold>', 'Detection threshold 0.0-1.0', '0.5')
+  .option('--install', 'Install openWakeWord if not present')
+  .action(async (options) => {
+    const chalk = (await import('chalk')).default;
+    const ora = (await import('ora')).default;
+
+    // Install if needed
+    if (options.install && !isOpenWakeWordInstalled()) {
+      const spinner = ora('Installing openWakeWord...').start();
+      try {
+        await installOpenWakeWord();
+        spinner.succeed('openWakeWord installed');
+      } catch (error) {
+        spinner.fail('Failed to install openWakeWord');
+        console.error(error);
+        process.exit(1);
+      }
+    } else if (!isOpenWakeWordInstalled()) {
+      console.warn(chalk.yellow('openWakeWord not installed. Run with --install flag.'));
+    }
+
+    // Configure
+    setConfigValue('wakeWord.provider', 'openwakeword');
+    setConfigValue('wakeWord.openwakeword.model', options.model);
+    setConfigValue('wakeWord.openwakeword.threshold', parseFloat(options.threshold));
+
+    console.log(chalk.green('\nopenWakeWord configured:'));
+    console.log(`  Provider: openwakeword`);
+    console.log(`  Model: ${options.model}`);
+    console.log(`  Threshold: ${options.threshold}`);
+    console.log('\nRun "claude-voice restart" to apply changes.');
   });
 
 // ============================================================================

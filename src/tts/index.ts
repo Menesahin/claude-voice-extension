@@ -3,6 +3,7 @@ import { MacOSSayProvider } from './providers/macos-say';
 import { OpenAITTSProvider } from './providers/openai';
 import { ElevenLabsProvider } from './providers/elevenlabs';
 import { PiperProvider } from './providers/piper';
+import { EspeakProvider } from './providers/espeak';
 
 export interface TTSProvider {
   name: string;
@@ -30,8 +31,13 @@ export class TTSManager {
         return new ElevenLabsProvider(config.elevenlabs);
       case 'piper':
         return new PiperProvider(config.piper);
+      case 'espeak':
+        return new EspeakProvider(config.espeak);
       default:
-        console.warn(`Unknown TTS provider: ${config.provider}, falling back to macos-say`);
+        console.warn(`Unknown TTS provider: ${config.provider}, falling back to native TTS`);
+        if (process.platform === 'linux') {
+          return new EspeakProvider(config.espeak);
+        }
         return new MacOSSayProvider(config.macos);
     }
   }
