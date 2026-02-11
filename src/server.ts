@@ -64,6 +64,23 @@ export function initializeManagers(): void {
 
 export function setWakeWordDetector(detector: IWakeWordDetector): void {
   wakeWordDetector = detector;
+
+  // Pause wake word detection during TTS playback to prevent echo
+  if (ttsManager) {
+    ttsManager.on('speaking', () => {
+      if (wakeWordDetector) {
+        wakeWordDetector.pause();
+      }
+    });
+    ttsManager.on('done', () => {
+      // Small delay to let audio output finish before resuming mic
+      setTimeout(() => {
+        if (wakeWordDetector) {
+          wakeWordDetector.resume();
+        }
+      }, 300);
+    });
+  }
 }
 
 // Health check

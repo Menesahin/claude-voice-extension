@@ -31,6 +31,7 @@ export class PicovoiceDetector extends EventEmitter {
   private recorder: any = null;
   private isListening = false;
   private isRecordingCommand = false;
+  private isPaused = false;
   private audioBuffer: Buffer[] = [];
   private silenceStartTime: number | null = null;
   private recordingProcess: ReturnType<typeof spawn> | null = null;
@@ -125,6 +126,13 @@ export class PicovoiceDetector extends EventEmitter {
     try {
       const frame = await this.recorder.read();
 
+      if (this.isPaused) {
+        if (this.isListening) {
+          setImmediate(() => this.readFrames());
+        }
+        return;
+      }
+
       if (this.isRecordingCommand) {
         // Convert Int16Array to Buffer for command recording
         const buffer = Buffer.alloc(frame.length * 2);
@@ -205,7 +213,7 @@ export class PicovoiceDetector extends EventEmitter {
     const frameLength = this.porcupine.frameLength;
 
     this.recordingProcess.stdout.on('data', (data: Buffer) => {
-      if (!this.isListening || !this.porcupine) return;
+      if (!this.isListening || !this.porcupine || this.isPaused) return;
 
       // Convert buffer to Int16 samples
       for (let i = 0; i < data.length; i += 2) {
@@ -344,5 +352,13 @@ export class PicovoiceDetector extends EventEmitter {
     }
     this.emit('wakeword', 0);
     this.startCommandRecording();
+  }
+
+  pause(): void {
+    this.isPaused = true;
+  }
+
+  resume(): void {
+    this.isPaused = false;
   }
 }

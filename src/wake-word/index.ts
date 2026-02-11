@@ -28,6 +28,8 @@ export interface IWakeWordDetector extends EventEmitter {
   stop(): void;
   cleanup(): void;
   triggerListening(): void;
+  pause(): void;
+  resume(): void;
 }
 
 /**
@@ -65,6 +67,7 @@ export class SherpaOnnxDetector extends EventEmitter implements IWakeWordDetecto
   private stream: any = null;
   private isListening = false;
   private isRecordingCommand = false;
+  private isPaused = false;
   private recordingProcess: ReturnType<typeof spawn> | null = null;
   private audioBuffer: Buffer[] = [];
   private silenceStartTime: number | null = null;
@@ -238,7 +241,7 @@ export class SherpaOnnxDetector extends EventEmitter implements IWakeWordDetecto
     }
 
     this.recordingProcess.stdout.on('data', (data: Buffer) => {
-      if (!this.isListening || !this.kws || !this.stream) {
+      if (!this.isListening || !this.kws || !this.stream || this.isPaused) {
         return;
       }
 
@@ -379,6 +382,14 @@ export class SherpaOnnxDetector extends EventEmitter implements IWakeWordDetecto
     }
     this.emit('wakeword', 0);
     this.startCommandRecording();
+  }
+
+  pause(): void {
+    this.isPaused = true;
+  }
+
+  resume(): void {
+    this.isPaused = false;
   }
 
   /**

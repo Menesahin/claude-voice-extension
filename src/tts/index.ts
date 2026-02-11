@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events';
 import { TTSConfig } from '../config';
 import { MacOSSayProvider } from './providers/macos-say';
 import { OpenAITTSProvider } from './providers/openai';
@@ -12,12 +13,13 @@ export interface TTSProvider {
   isReady(): boolean;
 }
 
-export class TTSManager {
+export class TTSManager extends EventEmitter {
   private provider: TTSProvider;
   private queue: { text: string; priority: boolean }[] = [];
   private isPlaying = false;
 
   constructor(config: TTSConfig) {
+    super();
     this.provider = this.createProvider(config);
   }
 
@@ -60,6 +62,7 @@ export class TTSManager {
     }
 
     this.isPlaying = true;
+    this.emit('speaking');
 
     while (this.queue.length > 0) {
       const item = this.queue.shift();
@@ -73,12 +76,17 @@ export class TTSManager {
     }
 
     this.isPlaying = false;
+    this.emit('done');
   }
 
   stop(): void {
     this.queue = [];
     this.provider.stop();
+    const wasPlaying = this.isPlaying;
     this.isPlaying = false;
+    if (wasPlaying) {
+      this.emit('done');
+    }
   }
 
   isReady(): boolean {

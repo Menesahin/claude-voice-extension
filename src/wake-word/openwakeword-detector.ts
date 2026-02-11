@@ -47,6 +47,7 @@ export class OpenWakeWordDetector extends EventEmitter {
   private audioBuffer: Buffer[] = [];
   private silenceStartTime: number | null = null;
   private isReady = false;
+  private isPaused = false;
 
   constructor(wakeWordConfig: WakeWordConfig, recordingConfig: RecordingConfig) {
     super();
@@ -303,7 +304,7 @@ export class OpenWakeWordDetector extends EventEmitter {
 
     // Pipe audio to Python process and also handle command recording
     this.audioProcess.stdout.on('data', (data: Buffer) => {
-      if (!this.isListening) return;
+      if (!this.isListening || this.isPaused) return;
 
       if (this.isRecordingCommand) {
         // Collecting audio for command transcription
@@ -399,6 +400,14 @@ export class OpenWakeWordDetector extends EventEmitter {
     }
     this.emit('wakeword', 0);
     this.startCommandRecording();
+  }
+
+  pause(): void {
+    this.isPaused = true;
+  }
+
+  resume(): void {
+    this.isPaused = false;
   }
 }
 
