@@ -1,7 +1,6 @@
 ---
 name: listen
 description: Use when the user wants to speak a voice command. Trigger words include listen, dinle, voice, sesli komut, mikrofon, microphone, speak, konuş, söyle, ses, record, kayıt, "I want to say something", "bir şey söylemek istiyorum"
-user_invocable: true
 ---
 
 # Voice Listen - Activate Microphone

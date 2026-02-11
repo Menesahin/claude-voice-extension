@@ -51,12 +51,19 @@ function installPlugin(sourceDir) {
     fs.writeFileSync(destPluginJson, JSON.stringify(manifest, null, 2));
   }
 
-  // Copy skills
+  // Copy skills to plugin dir (namespaced: /claude-voice:skill-name)
   if (fs.existsSync(sourceVoiceControlSkill)) {
     fs.copyFileSync(sourceVoiceControlSkill, destVoiceControlSkill);
   }
   if (fs.existsSync(sourceListenSkill)) {
     fs.copyFileSync(sourceListenSkill, destListenSkill);
+  }
+
+  // Also install listen skill to ~/.claude/skills/ for direct /listen invocation
+  const globalSkillsDir = path.join(os.homedir(), '.claude', 'skills', 'listen');
+  fs.mkdirSync(globalSkillsDir, { recursive: true });
+  if (fs.existsSync(sourceListenSkill)) {
+    fs.copyFileSync(sourceListenSkill, path.join(globalSkillsDir, 'SKILL.md'));
   }
 
   return pluginDir;
@@ -67,13 +74,20 @@ function installPlugin(sourceDir) {
  */
 function uninstallPlugin() {
   const pluginDir = path.join(os.homedir(), '.claude', 'plugins', PLUGIN_NAME);
+  const globalListenSkill = path.join(os.homedir(), '.claude', 'skills', 'listen');
+  let removed = false;
 
   if (fs.existsSync(pluginDir)) {
     fs.rmSync(pluginDir, { recursive: true, force: true });
-    return true;
+    removed = true;
   }
 
-  return false;
+  if (fs.existsSync(globalListenSkill)) {
+    fs.rmSync(globalListenSkill, { recursive: true, force: true });
+    removed = true;
+  }
+
+  return removed;
 }
 
 /**
