@@ -63,6 +63,7 @@ export interface WakeWordConfig {
   openwakeword?: {
     model?: string;
     threshold?: number;
+    vadThreshold?: number;
     debug?: boolean;
   };
 }

@@ -24,8 +24,10 @@ def main():
     parser = argparse.ArgumentParser(description='openWakeWord detector')
     parser.add_argument('--model', type=str, default='hey_jarvis',
                         help='Wake word model name (default: hey_jarvis)')
-    parser.add_argument('--threshold', type=float, default=0.5,
-                        help='Detection threshold 0.0-1.0 (default: 0.5)')
+    parser.add_argument('--threshold', type=float, default=0.65,
+                        help='Detection threshold 0.0-1.0 (default: 0.65)')
+    parser.add_argument('--vad-threshold', type=float, default=0.3,
+                        help='VAD threshold 0.0-1.0 to filter non-speech audio (default: 0.3, 0=disabled)')
     parser.add_argument('--debug', action='store_true',
                         help='Enable debug output')
     parser.add_argument('--models-dir', type=str, default=None,
@@ -60,21 +62,45 @@ def main():
     except ImportError:
         inference_fw = 'tflite'
 
+    # Check if Speex noise suppression is available (Linux only)
+    enable_speex = False
+    if sys.platform == 'linux':
+        try:
+            import importlib
+            if importlib.util.find_spec('speexdsp_ns'):
+                enable_speex = True
+        except Exception:
+            pass
+
+    # Build common model kwargs
+    model_kwargs = {
+        'inference_framework': inference_fw,
+    }
+    if args.vad_threshold > 0:
+        model_kwargs['vad_threshold'] = args.vad_threshold
+    if enable_speex:
+        model_kwargs['enable_speex_noise_suppression'] = True
+
     # Initialize model
     try:
         if custom_model_path.exists():
             # Use custom downloaded model
             if args.debug:
-                print(json.dumps({"debug": f"Loading custom model: {custom_model_path} ({inference_fw})"}), flush=True)
-            oww_model = Model(wakeword_models=[str(custom_model_path)], inference_framework=inference_fw)
+                print(json.dumps({"debug": f"Loading custom model: {custom_model_path} ({inference_fw}, vad={args.vad_threshold})"}), flush=True)
+            oww_model = Model(wakeword_models=[str(custom_model_path)], **model_kwargs)
         else:
             # Use built-in model (downloads automatically if needed)
             if args.debug:
-                print(json.dumps({"debug": f"Loading built-in model: {args.model} ({inference_fw})"}), flush=True)
-            oww_model = Model(wakeword_models=[args.model], inference_framework=inference_fw)
+                print(json.dumps({"debug": f"Loading built-in model: {args.model} ({inference_fw}, vad={args.vad_threshold})"}), flush=True)
+            oww_model = Model(wakeword_models=[args.model], **model_kwargs)
 
         # Signal ready
-        print(json.dumps({"status": "ready", "model": args.model, "threshold": args.threshold}), flush=True)
+        features = []
+        if args.vad_threshold > 0:
+            features.append(f"vad={args.vad_threshold}")
+        if enable_speex:
+            features.append("speex_ns")
+        print(json.dumps({"status": "ready", "model": args.model, "threshold": args.threshold, "features": features}), flush=True)
     except Exception as e:
         print(json.dumps({"error": f"Failed to load model: {str(e)}"}), flush=True)
         sys.exit(1)

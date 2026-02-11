@@ -73,7 +73,7 @@ export class OpenWakeWordDetector extends EventEmitter {
     }
 
     const model = this.config.openwakeword?.model || 'hey_jarvis';
-    const threshold = this.config.openwakeword?.threshold || 0.5;
+    const threshold = this.config.openwakeword?.threshold || 0.65;
 
     console.log(`openWakeWord detector initialized (model: "${model}", threshold: ${threshold})`);
     this.isReady = true;
@@ -137,7 +137,8 @@ export class OpenWakeWordDetector extends EventEmitter {
     }
 
     const model = this.config.openwakeword?.model || 'hey_jarvis';
-    const threshold = this.config.openwakeword?.threshold || 0.5;
+    const threshold = this.config.openwakeword?.threshold || 0.65;
+    const vadThreshold = this.config.openwakeword?.vadThreshold ?? 0.3;
     const debug = this.config.openwakeword?.debug || false;
     const modelsDir = path.join(os.homedir(), '.claude-voice', 'models', 'openwakeword');
 
@@ -147,6 +148,8 @@ export class OpenWakeWordDetector extends EventEmitter {
       model,
       '--threshold',
       String(threshold),
+      '--vad-threshold',
+      String(vadThreshold),
       '--models-dir',
       modelsDir,
     ];
