@@ -52,18 +52,26 @@ def main():
     # Check for custom model path
     custom_model_path = models_dir / f"{args.model}.onnx"
 
+    # Determine inference framework: prefer onnx (works on macOS ARM64),
+    # fall back to tflite if onnxruntime not available
+    inference_fw = 'onnx'
+    try:
+        import onnxruntime
+    except ImportError:
+        inference_fw = 'tflite'
+
     # Initialize model
     try:
         if custom_model_path.exists():
             # Use custom downloaded model
             if args.debug:
-                print(json.dumps({"debug": f"Loading custom model: {custom_model_path}"}), flush=True)
-            oww_model = Model(wakeword_models=[str(custom_model_path)])
+                print(json.dumps({"debug": f"Loading custom model: {custom_model_path} ({inference_fw})"}), flush=True)
+            oww_model = Model(wakeword_models=[str(custom_model_path)], inference_framework=inference_fw)
         else:
             # Use built-in model (downloads automatically if needed)
             if args.debug:
-                print(json.dumps({"debug": f"Loading built-in model: {args.model}"}), flush=True)
-            oww_model = Model(wakeword_models=[args.model])
+                print(json.dumps({"debug": f"Loading built-in model: {args.model} ({inference_fw})"}), flush=True)
+            oww_model = Model(wakeword_models=[args.model], inference_framework=inference_fw)
 
         # Signal ready
         print(json.dumps({"status": "ready", "model": args.model, "threshold": args.threshold}), flush=True)

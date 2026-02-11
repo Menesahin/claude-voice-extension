@@ -437,9 +437,9 @@ export async function installOpenWakeWord(): Promise<void> {
   console.log('Installing openWakeWord...');
   // Try multiple pip strategies for compatibility with Homebrew/system Python (PEP 668)
   const strategies = [
-    `${pythonCmd} -m pip install openwakeword`,
-    `${pythonCmd} -m pip install --user openwakeword`,
-    `${pythonCmd} -m pip install --break-system-packages openwakeword`,
+    `${pythonCmd} -m pip install openwakeword onnxruntime`,
+    `${pythonCmd} -m pip install --user openwakeword onnxruntime`,
+    `${pythonCmd} -m pip install --break-system-packages openwakeword onnxruntime`,
   ];
   let installed = false;
   for (const cmd of strategies) {
@@ -486,7 +486,7 @@ export async function downloadOpenWakeWordModel(modelId: string): Promise<void> 
   const script = `
 import openwakeword
 from openwakeword.model import Model
-model = Model(wakeword_models=["${modelId}"])
+model = Model(wakeword_models=["${modelId}"], inference_framework="onnx")
 print("Model loaded successfully!")
 `;
 

@@ -66,9 +66,9 @@ function checkOpenWakeWordInstalled(pythonCmd) {
 function tryInstallOpenWakeWord(pythonCmd) {
   // Try multiple pip strategies for compatibility with Homebrew/system Python (PEP 668)
   const strategies = [
-    `${pythonCmd} -m pip install openwakeword`,
-    `${pythonCmd} -m pip install --user openwakeword`,
-    `${pythonCmd} -m pip install --break-system-packages openwakeword`,
+    `${pythonCmd} -m pip install openwakeword onnxruntime`,
+    `${pythonCmd} -m pip install --user openwakeword onnxruntime`,
+    `${pythonCmd} -m pip install --break-system-packages openwakeword onnxruntime`,
   ];
 
   console.log('  Installing openWakeWord via pip...');
