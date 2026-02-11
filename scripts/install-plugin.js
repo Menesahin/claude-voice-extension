@@ -20,19 +20,23 @@ function installPlugin(sourceDir) {
   const pluginsDir = path.join(os.homedir(), '.claude', 'plugins');
   const pluginDir = path.join(pluginsDir, PLUGIN_NAME);
   const manifestDir = path.join(pluginDir, '.claude-plugin');
-  const skillDir = path.join(pluginDir, 'skills', 'voice-control');
+  const voiceControlSkillDir = path.join(pluginDir, 'skills', 'voice-control');
+  const listenSkillDir = path.join(pluginDir, 'skills', 'listen');
 
   // Create directories
   fs.mkdirSync(manifestDir, { recursive: true });
-  fs.mkdirSync(skillDir, { recursive: true });
+  fs.mkdirSync(voiceControlSkillDir, { recursive: true });
+  fs.mkdirSync(listenSkillDir, { recursive: true });
 
   // Source paths
   const sourcePluginJson = path.join(sourceDir, 'plugin', 'plugin.json');
-  const sourceSkillMd = path.join(sourceDir, 'plugin', 'skills', 'voice-control', 'SKILL.md');
+  const sourceVoiceControlSkill = path.join(sourceDir, 'plugin', 'skills', 'voice-control', 'SKILL.md');
+  const sourceListenSkill = path.join(sourceDir, 'plugin', 'skills', 'listen', 'SKILL.md');
 
   // Destination paths
   const destPluginJson = path.join(manifestDir, 'plugin.json');
-  const destSkillMd = path.join(skillDir, 'SKILL.md');
+  const destVoiceControlSkill = path.join(voiceControlSkillDir, 'SKILL.md');
+  const destListenSkill = path.join(listenSkillDir, 'SKILL.md');
 
   // Copy plugin.json
   if (fs.existsSync(sourcePluginJson)) {
@@ -41,15 +45,18 @@ function installPlugin(sourceDir) {
     // Create minimal manifest if source doesn't exist
     const manifest = {
       name: PLUGIN_NAME,
-      version: '1.1.1',
+      version: '1.5.0',
       description: 'Voice interface for Claude Code - TTS, STT, wake word detection'
     };
     fs.writeFileSync(destPluginJson, JSON.stringify(manifest, null, 2));
   }
 
-  // Copy SKILL.md
-  if (fs.existsSync(sourceSkillMd)) {
-    fs.copyFileSync(sourceSkillMd, destSkillMd);
+  // Copy skills
+  if (fs.existsSync(sourceVoiceControlSkill)) {
+    fs.copyFileSync(sourceVoiceControlSkill, destVoiceControlSkill);
+  }
+  if (fs.existsSync(sourceListenSkill)) {
+    fs.copyFileSync(sourceListenSkill, destListenSkill);
   }
 
   return pluginDir;
