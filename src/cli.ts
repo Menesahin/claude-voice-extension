@@ -922,6 +922,37 @@ program
       }
     }
 
+    // Offer Picovoice upgrade for better accuracy
+    if (config.wakeWord.enabled && config.wakeWord.provider !== 'picovoice') {
+      const picoAnswer = await inquirer.default.prompt([
+        {
+          type: 'confirm',
+          name: 'upgrade',
+          message: 'Upgrade to Picovoice for best wake word accuracy? (free, needs 30s signup)',
+          default: false,
+        },
+      ]);
+      if (picoAnswer.upgrade) {
+        console.log(chalk.cyan('\n  Get your free AccessKey:'));
+        console.log(chalk.cyan('  https://console.picovoice.ai/\n'));
+        const keyAnswer = await inquirer.default.prompt([
+          {
+            type: 'input',
+            name: 'accessKey',
+            message: 'Paste your Picovoice AccessKey (or Enter to skip):',
+          },
+        ]);
+        const key = (keyAnswer as { accessKey: string }).accessKey.trim();
+        if (key.length > 10) {
+          config.wakeWord.provider = 'picovoice';
+          config.wakeWord.picovoice = { accessKey: key };
+          console.log(chalk.green('  Picovoice configured!'));
+        } else {
+          console.log(chalk.yellow('  Skipped. You can switch later: claude-voice picovoice'));
+        }
+      }
+    }
+
     // Install hooks if needed
     console.log('');
     if (!checkHooksInstalled()) {
@@ -1089,6 +1120,10 @@ program
       if (config.wakeWord.provider === 'openwakeword') {
         if (isOpenWakeWordInstalled()) {
           spinner.succeed('Wake word: openWakeWord (installed)');
+          console.log(chalk.dim('    Tip: For much better accuracy, switch to Picovoice (free):'));
+          console.log(chalk.dim('    1. Get key: https://console.picovoice.ai/'));
+          console.log(chalk.dim('    2. claude-voice config set wakeWord.picovoice.accessKey=YOUR_KEY'));
+          console.log(chalk.dim('    3. claude-voice config set wakeWord.provider=picovoice'));
         } else {
           spinner.warn('Wake word: openWakeWord (not installed)');
           issues.push({
@@ -1105,7 +1140,10 @@ program
         );
         if (fs.existsSync(kwsPath)) {
           spinner.succeed('Wake word: Sherpa-ONNX KWS (installed)');
-          console.log(chalk.dim('    Tip: Upgrade to openWakeWord for better accuracy: claude-voice openwakeword --install'));
+          console.log(chalk.dim('    Tip: For much better accuracy, switch to Picovoice (free):'));
+          console.log(chalk.dim('    1. Get key: https://console.picovoice.ai/'));
+          console.log(chalk.dim('    2. claude-voice config set wakeWord.picovoice.accessKey=YOUR_KEY'));
+          console.log(chalk.dim('    3. claude-voice config set wakeWord.provider=picovoice'));
         } else {
           spinner.warn('Wake word: Sherpa-ONNX KWS model not downloaded');
           issues.push({
@@ -1114,11 +1152,14 @@ program
           });
         }
       } else if (config.wakeWord.provider === 'picovoice') {
-        if (config.wakeWord.picovoice?.accessKey) {
-          spinner.succeed('Wake word: Picovoice (configured)');
+        if (config.wakeWord.picovoice?.accessKey || process.env.PICOVOICE_ACCESS_KEY) {
+          spinner.succeed('Wake word: Picovoice (configured - best accuracy)');
         } else {
           spinner.warn('Wake word: Picovoice (access key missing)');
-          issues.push({ label: 'Picovoice access key not configured', fix: 'Get free key at picovoice.ai' });
+          issues.push({
+            label: 'Picovoice access key not configured',
+            fix: 'Get free key at https://console.picovoice.ai/ then: claude-voice config set wakeWord.picovoice.accessKey=YOUR_KEY',
+          });
         }
       } else {
         spinner.info(`Wake word: ${config.wakeWord.provider}`);
@@ -2030,6 +2071,44 @@ program
     console.log(`  Provider: openwakeword`);
     console.log(`  Model: ${options.model}`);
     console.log(`  Threshold: ${options.threshold}`);
+    console.log('\nRun "claude-voice restart" to apply changes.');
+  });
+
+program
+  .command('picovoice')
+  .description('Switch to Picovoice wake word detection (best accuracy, free)')
+  .option('--key <accessKey>', 'Picovoice AccessKey')
+  .action(async (options) => {
+    const chalk = (await import('chalk')).default;
+    const inquirer = await import('inquirer');
+
+    let accessKey = options.key || getConfigValue('wakeWord.picovoice.accessKey') || process.env.PICOVOICE_ACCESS_KEY;
+
+    if (!accessKey) {
+      console.log(chalk.bold('\n  Picovoice Wake Word Detection\n'));
+      console.log('  Picovoice offers the best wake word accuracy (97%+).');
+      console.log('  Free for personal use - no credit card needed.\n');
+      console.log(chalk.cyan('  1. Go to: https://console.picovoice.ai/'));
+      console.log(chalk.cyan('  2. Sign up with GitHub (30 seconds)'));
+      console.log(chalk.cyan('  3. Copy your AccessKey\n'));
+
+      const answers = await inquirer.default.prompt([
+        {
+          type: 'input',
+          name: 'accessKey',
+          message: 'Paste your Picovoice AccessKey:',
+          validate: (input: string) => input.trim().length > 10 || 'Please enter a valid AccessKey',
+        },
+      ]);
+      accessKey = (answers as { accessKey: string }).accessKey.trim();
+    }
+
+    setConfigValue('wakeWord.provider', 'picovoice');
+    setConfigValue('wakeWord.picovoice.accessKey', accessKey);
+
+    console.log(chalk.green('\nPicovoice configured!'));
+    console.log('  Provider: picovoice');
+    console.log('  Keyword: jarvis (built-in)');
     console.log('\nRun "claude-voice restart" to apply changes.');
   });
 
