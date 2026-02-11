@@ -320,7 +320,8 @@ process.on('SIGTERM', async () => {
     }
   }
 
-  process.exit(0);
+  // Give child processes time to die, then force exit
+  setTimeout(() => process.exit(0), 200);
 });
 
 // Export for programmatic use

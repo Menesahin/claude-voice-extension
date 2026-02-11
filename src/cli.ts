@@ -102,14 +102,22 @@ function deletePid(): void {
 }
 
 function findDaemonByPort(): number | null {
-  try {
-    // Use lsof to find process listening on port 3456
-    const result = execSync('lsof -ti :3456 2>/dev/null', { encoding: 'utf-8' });
-    const pid = parseInt(result.trim(), 10);
-    return isNaN(pid) ? null : pid;
-  } catch {
-    return null;
+  // Try lsof first (macOS + Linux), then ss (Linux fallback)
+  const commands = [
+    'lsof -ti :3456 2>/dev/null',
+    "ss -tlnp 'sport = :3456' 2>/dev/null | sed -n 's/.*pid=\\([0-9]*\\).*/\\1/p'",
+  ];
+
+  for (const cmd of commands) {
+    try {
+      const result = execSync(cmd, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+      const pid = parseInt(result.trim().split('\n')[0], 10);
+      if (!isNaN(pid) && pid > 0) return pid;
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 /**
@@ -393,7 +401,39 @@ program
 
     if (pid) {
       try {
-        process.kill(pid, 'SIGTERM');
+        // Kill the entire process group to ensure child processes (Python, arecord) also die
+        try {
+          process.kill(-pid, 'SIGTERM');
+        } catch {
+          // Process group kill failed, fall back to single process
+          process.kill(pid, 'SIGTERM');
+        }
+
+        // Wait and verify the process actually died
+        await new Promise((r) => setTimeout(r, 500));
+
+        try {
+          process.kill(pid, 0); // Check if still alive
+          // Still alive - force kill
+          try {
+            process.kill(-pid, 'SIGKILL');
+          } catch {
+            process.kill(pid, 'SIGKILL');
+          }
+        } catch {
+          // Process is dead - good
+        }
+
+        // Also clean up any remaining processes on the port
+        const remainingPid = findDaemonByPort();
+        if (remainingPid && remainingPid !== pid) {
+          try {
+            process.kill(remainingPid, 'SIGKILL');
+          } catch {
+            // Ignore
+          }
+        }
+
         console.log('Daemon stopped.');
         deletePid();
       } catch {
@@ -414,10 +454,23 @@ program
 
     if (pid) {
       try {
-        process.kill(pid, 'SIGTERM');
+        // Kill process group to ensure child processes also die
+        try {
+          process.kill(-pid, 'SIGTERM');
+        } catch {
+          process.kill(pid, 'SIGTERM');
+        }
         console.log('Stopping daemon...');
         deletePid();
         await new Promise((r) => setTimeout(r, 1000));
+
+        // Force kill if still alive
+        try {
+          process.kill(pid, 0);
+          try { process.kill(-pid, 'SIGKILL'); } catch { process.kill(pid, 'SIGKILL'); }
+        } catch {
+          // Dead - good
+        }
       } catch {
         // Already stopped
         deletePid();
@@ -429,8 +482,8 @@ program
     if (orphanPid) {
       console.log(`Found orphan daemon (PID: ${orphanPid}). Stopping it...`);
       try {
-        process.kill(orphanPid, 'SIGTERM');
-        await new Promise((r) => setTimeout(r, 1000));
+        try { process.kill(-orphanPid, 'SIGKILL'); } catch { process.kill(orphanPid, 'SIGKILL'); }
+        await new Promise((r) => setTimeout(r, 500));
       } catch {
         // Ignore
       }
