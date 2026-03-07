@@ -6,6 +6,12 @@
 
 Voice interface for Claude Code. Speak commands, hear responses.
 
+<div align="center">
+
+https://github.com/Menesahin/claude-voice-extension/raw/main/media/promo.mp4
+
+</div>
+
 ```bash
 npm install -g claude-voice
 ```
