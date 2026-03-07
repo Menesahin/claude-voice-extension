@@ -7,9 +7,7 @@
 Voice interface for Claude Code. Speak commands, hear responses.
 
 <div align="center">
-
-https://github.com/Menesahin/claude-voice-extension/raw/main/media/promo.mp4
-
+  <video src="https://github.com/Menesahin/claude-voice-extension/raw/main/media/promo.mp4" width="100%" autoplay muted loop playsinline></video>
 </div>
 
 ```bash
