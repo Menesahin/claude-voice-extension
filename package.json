@@ -29,7 +29,7 @@
     "wake-word"
   ],
   "author": "Enes Sahin <menesahin99@gmail.com>",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Menesahin/claude-voice-extension.git"

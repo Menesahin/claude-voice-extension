@@ -1,7 +1,7 @@
 # Claude Voice Extension
 
 [![npm version](https://img.shields.io/npm/v/claude-voice)](https://www.npmjs.com/package/claude-voice)
-[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-red.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue)]()
 
 Voice interface for Claude Code. Speak commands, hear responses.
@@ -124,7 +124,7 @@ claude-voice start -f             # Run in foreground for debugging
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE) - Free for personal use, research, and education.
+[Apache License 2.0](LICENSE)
 
 ---
 
