@@ -5,18 +5,18 @@ description: Use when the user wants to speak a voice command. Trigger words inc
 
 # Voice Listen - Activate Microphone
 
-When this skill is triggered, immediately run the following command to activate voice listening:
+Immediately run this command without any preamble:
 
 ```bash
 claude-voice listen
 ```
 
-This activates the microphone and waits for the user to speak a command. The voice extension will:
-1. Play a "ping" sound to indicate it's listening
-2. Record the user's speech
-3. Transcribe it using STT (speech-to-text)
-4. Inject the transcribed text into the terminal
+Then respond with ONLY: "Listening..." (nothing else). The voice extension handles everything:
+1. Plays a ping sound
+2. Records speech
+3. Transcribes via STT
+4. Injects the transcribed text as your next input
 
-After running the command, tell the user you're listening and they can speak their command now.
+Do NOT add explanations, instructions, or extra text. Just run the command and say "Listening..."
 
 If the command fails with "Daemon not running", run `claude-voice start` first, then retry `claude-voice listen`.

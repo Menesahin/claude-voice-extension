@@ -1,5 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { loadConfig, saveConfig, Config } from './config';
+import { loadConfig, saveConfig, clearConfigCache, Config } from './config';
 import { TTSManager } from './tts';
 import { STTManager } from './stt';
 import { IWakeWordDetector } from './wake-word';
@@ -57,30 +57,44 @@ let sttManager: STTManager;
 let wakeWordDetector: IWakeWordDetector | null = null;
 
 export function initializeManagers(): void {
+  // Clean up old managers' event listeners before replacing
+  if (ttsManager) {
+    ttsManager.removeAllListeners();
+  }
+
   const config = loadConfig();
   ttsManager = new TTSManager(config.tts);
   sttManager = new STTManager(config.stt);
+
+  // Re-bind wake word detector to new TTS manager
+  if (wakeWordDetector) {
+    bindWakeWordToTTS();
+  }
+}
+
+export function getSttManager(): STTManager {
+  return sttManager;
+}
+
+function bindWakeWordToTTS(): void {
+  if (!wakeWordDetector || !ttsManager) return;
+  ttsManager.on('speaking', () => {
+    if (wakeWordDetector) {
+      wakeWordDetector.pause();
+    }
+  });
+  ttsManager.on('done', () => {
+    setTimeout(() => {
+      if (wakeWordDetector) {
+        wakeWordDetector.resume();
+      }
+    }, 300);
+  });
 }
 
 export function setWakeWordDetector(detector: IWakeWordDetector): void {
   wakeWordDetector = detector;
-
-  // Pause wake word detection during TTS playback to prevent echo
-  if (ttsManager) {
-    ttsManager.on('speaking', () => {
-      if (wakeWordDetector) {
-        wakeWordDetector.pause();
-      }
-    });
-    ttsManager.on('done', () => {
-      // Small delay to let audio output finish before resuming mic
-      setTimeout(() => {
-        if (wakeWordDetector) {
-          wakeWordDetector.resume();
-        }
-      }, 300);
-    });
-  }
+  bindWakeWordToTTS();
 }
 
 // Health check
@@ -201,6 +215,7 @@ app.post('/config', (req: Request, res: Response) => {
   try {
     const updates = req.body as Partial<Config>;
     saveConfig(updates);
+    clearConfigCache();
 
     // Reinitialize managers with new config
     initializeManagers();
@@ -221,6 +236,7 @@ app.post('/tts/provider', (req: Request, res: Response) => {
   }
 
   saveConfig({ tts: { ...loadConfig().tts, provider } });
+  clearConfigCache();
   initializeManagers();
 
   res.json({ success: true, provider });
@@ -236,6 +252,7 @@ app.post('/stt/provider', (req: Request, res: Response) => {
   }
 
   saveConfig({ stt: { ...loadConfig().stt, provider } });
+  clearConfigCache();
   initializeManagers();
 
   res.json({ success: true, provider });

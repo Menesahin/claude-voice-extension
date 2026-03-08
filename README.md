@@ -4,7 +4,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blue)]()
 
-Voice interface for Claude Code. Speak commands, hear responses.
+**The hands-free voice interface for Claude Code.** Say "Hey Jarvis" and start coding with your voice — no buttons, no typing.
 
 <div align="center">
   <a href="https://github.com/Menesahin/claude-voice-extension/raw/main/media/promo.mp4">
@@ -18,7 +18,21 @@ Voice interface for Claude Code. Speak commands, hear responses.
 npm install -g claude-voice
 ```
 
-Say **"Hey Jarvis"** followed by your command. The extension auto-starts with Claude Code.
+That's it. The extension auto-installs hooks and starts with Claude Code. Say **"Hey Jarvis"** and speak your command.
+
+## Why Claude Voice?
+
+**Wake word activation** — Say "Hey Jarvis" from across the room. No keyboard needed. No buttons to hold. Your voice triggers Claude instantly.
+
+**Hear every response** — Claude doesn't just respond in text. It speaks back to you. Step away from the screen and still follow along.
+
+**Works offline** — Local STT (Sherpa-ONNX) and local TTS (Piper, macOS Say) mean zero API calls, zero latency, zero cost. Your voice data never leaves your machine.
+
+**5 TTS providers, 3 STT providers** — Choose the quality/cost/privacy balance that works for you. From free local voices to premium OpenAI and ElevenLabs.
+
+**Tool announcements** — Hear "Build completed", "Tests passed", "File written" while you're making coffee. Know what Claude is doing without watching the screen.
+
+**Multi-language** — Speak in English, Turkish, German, French, Spanish, Japanese, Chinese, and more. Change with one command: `claude-voice config set stt.language=tr`
 
 ## How It Works
 

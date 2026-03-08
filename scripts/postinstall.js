@@ -194,11 +194,11 @@ async function runSetup() {
   console.log('║          Claude Voice Extension - Auto Setup               ║');
   console.log('╚════════════════════════════════════════════════════════════╝\n');
 
-  const ttsProvider = platform === 'darwin' ? 'macOS Say' : 'espeak';
-  const ttsProviderId = platform === 'darwin' ? 'macos-say' : 'espeak';
+  let ttsProvider = platform === 'darwin' ? 'macOS Say' : 'espeak';
+  let ttsProviderId = platform === 'darwin' ? 'macos-say' : 'espeak';
 
   // 1. Create config directory and set up configuration
-  console.log('Step 1/5: Setting up configuration...');
+  console.log('Step 1/6: Setting up configuration...');
   if (!fs.existsSync(CONFIG_DIR)) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     console.log('  [✓] Created config directory');
@@ -215,10 +215,11 @@ async function runSetup() {
     console.log('  [✓] Configuration file exists');
   }
 
-  // Configure with platform-aware defaults (zero-config TTS)
+  // Configure with platform-aware defaults (native TTS as initial fallback, piper attempted in step 5)
   try {
     const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
     config.tts = config.tts || {};
+    // Set native TTS as initial default; piper will override in step 5 if install succeeds
     config.tts.provider = ttsProviderId;
     config.stt = config.stt || {};
     config.stt.provider = 'sherpa-onnx';
@@ -240,7 +241,7 @@ async function runSetup() {
   }
 
   // 2. Install Claude Code hooks
-  console.log('\nStep 2/5: Installing Claude Code hooks...');
+  console.log('\nStep 2/6: Installing Claude Code hooks...');
   try {
     const settingsFile = installHooks(HOOKS_DIR);
     console.log('  [✓] Hooks installed');
@@ -250,7 +251,7 @@ async function runSetup() {
   }
 
   // 3. Install Claude Code plugin (skill)
-  console.log('\nStep 3/5: Installing Claude Code plugin...');
+  console.log('\nStep 3/6: Installing Claude Code plugin...');
   try {
     const pluginPath = installPlugin(path.join(__dirname, '..'));
     console.log('  [✓] Plugin installed');
@@ -260,7 +261,7 @@ async function runSetup() {
   }
 
   // 4. Set up wake word detection
-  console.log('\nStep 4/5: Setting up wake word detection...');
+  console.log('\nStep 4/6: Setting up wake word detection...');
 
   // Re-read config to check which provider was selected
   let wakeWordProvider = 'sherpa-onnx';
@@ -329,8 +330,85 @@ async function runSetup() {
     console.log('  Tip: Install Python 3 + openwakeword for better wake word detection');
   }
 
-  // 5. Check platform-specific audio tools
-  console.log('\nStep 5/5: Checking audio tools...');
+  // 5. Install Piper TTS voice for high-quality speech
+  console.log('\nStep 5/6: Installing Piper TTS voice...');
+  const pythonForPiper = hasPython3();
+  if (pythonForPiper) {
+    try {
+      const piperDir = path.join(CONFIG_DIR, 'piper');
+      const piperVenv = path.join(piperDir, 'venv');
+      const piperBin = path.join(piperVenv, 'bin', 'piper');
+      const voicesDir = path.join(CONFIG_DIR, 'voices');
+      const voiceId = 'en_US-joe-medium';
+      const voiceFile = path.join(voicesDir, `${voiceId}.onnx`);
+
+      if (fs.existsSync(voiceFile)) {
+        console.log(`  [✓] Piper voice already installed: ${voiceId}`);
+        ttsProvider = 'Piper';
+        ttsProviderId = 'piper';
+      } else {
+        // Install piper binary if needed
+        if (!fs.existsSync(piperBin)) {
+          if (!fs.existsSync(piperDir)) {
+            fs.mkdirSync(piperDir, { recursive: true });
+          }
+          console.log(`  [1/3] Creating Python venv (${pythonForPiper})...`);
+          execSync(`${pythonForPiper} -m venv "${piperVenv}"`, { stdio: 'pipe', timeout: 60000 });
+
+          console.log('  [2/3] Installing piper-tts (this may take a minute)...');
+          const pip = path.join(piperVenv, 'bin', 'pip');
+          execSync(`"${pip}" install --quiet piper-tts pathvalidate`, { stdio: 'pipe', timeout: 180000 });
+        } else {
+          console.log('  [✓] Piper binary already installed');
+        }
+
+        // Download voice model
+        console.log(`  [3/3] Downloading voice: ${voiceId} (~50MB)...`);
+        if (!fs.existsSync(voicesDir)) {
+          fs.mkdirSync(voicesDir, { recursive: true });
+        }
+
+        // Voice URL from HuggingFace
+        const lang = 'en';
+        const langCode = 'en_US';
+        const voiceName = 'joe';
+        const quality = 'medium';
+        const baseUrl = 'https://huggingface.co/rhasspy/piper-voices/resolve/main';
+        const voicePath = `${lang}/${langCode}/${voiceName}/${quality}`;
+        const onnxUrl = `${baseUrl}/${voicePath}/${voiceId}.onnx`;
+        const jsonUrl = `${baseUrl}/${voicePath}/${voiceId}.onnx.json`;
+
+        execSync(`curl -L -# -o "${voiceFile}" "${onnxUrl}"`, { stdio: 'inherit', timeout: 120000 });
+        execSync(`curl -L -s -o "${voiceFile}.json" "${jsonUrl}"`, { stdio: 'pipe', timeout: 30000 });
+
+        console.log(`  [✓] Piper voice installed: ${voiceId}`);
+        ttsProvider = 'Piper';
+        ttsProviderId = 'piper';
+      }
+
+      // Update config with piper
+      try {
+        const piperConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        piperConfig.tts.provider = 'piper';
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(piperConfig, null, 2));
+      } catch { /* ignore */ }
+    } catch (err) {
+      console.log(`  [!] Piper installation failed: ${err.message}`);
+      console.log(`  Falling back to ${ttsProvider} (native TTS)`);
+      // Ensure config has native fallback
+      try {
+        const fallbackTtsConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        fallbackTtsConfig.tts.provider = ttsProviderId;
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(fallbackTtsConfig, null, 2));
+      } catch { /* ignore */ }
+    }
+  } else {
+    console.log('  [!] Python 3 not found - Piper requires Python 3.9+');
+    console.log(`  Using ${ttsProvider} (native TTS)`);
+  }
+
+  // 6. Check platform-specific audio tools
+  console.log('\nStep 6/6: Checking audio tools...');
 
   if (platform === 'darwin') {
     console.log('  [✓] TTS: macOS Say (built-in)');
@@ -379,6 +457,23 @@ async function runSetup() {
     } else {
       console.log('  [!] xdotool not found (needed for voice commands)');
       console.log('      Install: sudo apt install xdotool');
+    }
+  }
+
+  // Fix sherpa-onnx native module rpath on macOS
+  if (platform === 'darwin') {
+    const sherpaNode = path.join(__dirname, '..', 'node_modules', 'sherpa-onnx-darwin-arm64', 'sherpa-onnx.node');
+    if (fs.existsSync(sherpaNode)) {
+      try {
+        // Check if @loader_path rpath already exists
+        const rpathOutput = execSync(`otool -l "${sherpaNode}" 2>/dev/null`, { encoding: 'utf-8' });
+        if (!rpathOutput.includes('@loader_path')) {
+          execSync(`install_name_tool -add_rpath @loader_path "${sherpaNode}" 2>/dev/null`);
+          console.log('  [✓] Fixed sherpa-onnx native module rpath');
+        }
+      } catch {
+        // Non-fatal: rpath fix is optional
+      }
     }
   }
 
@@ -439,13 +534,13 @@ async function runSetup() {
   console.log('║                    Setup Complete!                         ║');
   console.log('╚════════════════════════════════════════════════════════════╝\n');
   console.log('  The extension will auto-start when you launch Claude Code.');
-  console.log(`  TTS: ${ttsProvider} (native, zero-config)`);
+  const ttsLabel = ttsProviderId === 'piper' ? `${ttsProvider} (neural voice: en_US-joe-medium)` : `${ttsProvider} (native)`;
+  console.log(`  TTS: ${ttsLabel}`);
   console.log('  STT: Sherpa-ONNX Whisper (downloads on first use)');
   const wakeWordName = wakeWordProvider === 'openwakeword' ? 'openWakeWord' : 'Sherpa-ONNX KWS';
   const wakeWordPhrase = wakeWordProvider === 'openwakeword' ? 'Hey Jarvis' : 'Jarvis';
   console.log(`  Wake Word: ${wakeWordName} - Say "${wakeWordPhrase}" to start speaking.\n`);
   console.log('  Upgrade voice quality:');
-  console.log('  - Better TTS:    claude-voice local --download  (Piper neural voices)');
   console.log('  - Best quality:  claude-voice openai            (requires API key)');
   console.log('  - Customize:     claude-voice setup\n');
   console.log('  Troubleshoot:    claude-voice doctor\n');

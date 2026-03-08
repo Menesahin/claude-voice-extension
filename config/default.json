@@ -1,7 +1,7 @@
 {
   "version": 1,
   "tts": {
-    "provider": "macos-say",
+    "provider": "piper",
     "autoSpeak": true,
     "maxSpeechLength": 5000,
     "skipCodeBlocks": true,

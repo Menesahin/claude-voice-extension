@@ -8,16 +8,14 @@
 
 import { loadConfig } from './config';
 import { loadEnvVars } from './env';
-import { startServer, setWakeWordDetector } from './server';
+import { startServer, setWakeWordDetector, getSttManager } from './server';
 import { createWakeWordDetector, IWakeWordDetector } from './wake-word';
-import { STTManager } from './stt';
 import { sendToClaudeCode } from './terminal/input-injector';
 import { saveToWav } from './wake-word/recorder';
 import * as path from 'path';
 import * as os from 'os';
 
 let wakeWordDetector: IWakeWordDetector | null = null;
-let sttManager: STTManager | null = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let keyListener: any = null;
 let isRecordingFromShortcut = false;
@@ -30,11 +28,8 @@ async function startDaemon(): Promise<void> {
 
   console.log('Starting Claude Voice Extension daemon...');
 
-  // Start the HTTP API server
+  // Start the HTTP API server (also initializes TTS and STT managers)
   await startServer();
-
-  // Initialize STT manager for voice commands
-  sttManager = new STTManager(config.stt);
 
   // Initialize wake word detection if enabled
   if (config.wakeWord.enabled) {
@@ -74,7 +69,8 @@ async function initializeWakeWord(config: ReturnType<typeof loadConfig>): Promis
         const tempPath = path.join(os.tmpdir(), `voice-command-${Date.now()}.wav`);
         await saveToWav(audioBuffer, tempPath, config.recording.sampleRate, config.recording.channels);
 
-        // Transcribe
+        // Transcribe using shared STT manager from server
+        const sttManager = getSttManager();
         if (sttManager) {
           const transcript = await sttManager.transcribe(tempPath);
 
@@ -273,9 +269,10 @@ async function startStandaloneRecording(config: ReturnType<typeof loadConfig>): 
     isRecordingFromShortcut = false;
     playShortcutSound('stop');
 
-    if (fs.existsSync(tempPath) && sttManager) {
+    const standaloneSttManager = getSttManager();
+    if (fs.existsSync(tempPath) && standaloneSttManager) {
       try {
-        const transcript = await sttManager.transcribe(tempPath);
+        const transcript = await standaloneSttManager.transcribe(tempPath);
         if (transcript && transcript.trim()) {
           console.log(`Transcribed: "${transcript}"`);
           await sendToClaudeCode(transcript);

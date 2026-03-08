@@ -81,10 +81,15 @@ async function extractLastResponse(transcriptPath) {
   });
 
   let lastAssistantMessage = null;
+  let lastEntryType = null;
 
   for await (const line of rl) {
     try {
       const entry = JSON.parse(line);
+
+      if (entry.type) {
+        lastEntryType = entry.type;
+      }
 
       // Look for assistant messages
       if (entry.type === 'assistant' && entry.message) {
@@ -105,7 +110,34 @@ async function extractLastResponse(transcriptPath) {
     }
   }
 
-  return lastAssistantMessage;
+  return { text: lastAssistantMessage, lastEntryType };
+}
+
+async function extractLastResponseWithRetry(transcriptPath, maxRetries = 2) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      // Wait before retry to let the file flush
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    const result = await extractLastResponse(transcriptPath);
+
+    // If we got an assistant message and the last entry is assistant type, we're good
+    if (result.text && result.lastEntryType === 'assistant') {
+      return result.text;
+    }
+
+    // If the last entry is not assistant, the file may not have been flushed yet
+    // Wait and retry
+    if (result.lastEntryType !== 'assistant' && attempt < maxRetries - 1) {
+      continue;
+    }
+
+    // Return whatever we have on the last attempt
+    return result.text;
+  }
+
+  return null;
 }
 
 // Extract text for TTS - remove marker but keep all content
@@ -258,8 +290,11 @@ async function main() {
   }
 
   try {
-    // Extract Claude's last response
-    const lastResponse = await extractLastResponse(transcript_path);
+    // Small delay to ensure transcript file is flushed to disk
+    await new Promise(r => setTimeout(r, 300));
+
+    // Extract Claude's last response with retry logic
+    const lastResponse = await extractLastResponseWithRetry(transcript_path);
 
     if (lastResponse) {
       // Summarize and clean for speech

@@ -293,10 +293,10 @@ export async function installPiper(): Promise<void> {
   console.log('  [2/3] Creating Python virtual environment...');
   execSync(`${python} -m venv "${PIPER_VENV}"`, { stdio: 'pipe' });
 
-  // Install piper-tts
+  // Install piper-tts and dependencies
   console.log('  [3/3] Installing piper-tts package (this may take a minute)...');
   const pip = path.join(PIPER_VENV, 'bin', 'pip');
-  execSync(`"${pip}" install --quiet piper-tts`, { stdio: 'pipe' });
+  execSync(`"${pip}" install --quiet piper-tts pathvalidate`, { stdio: 'pipe' });
 
   console.log('  [✓] Piper TTS installed successfully');
 }

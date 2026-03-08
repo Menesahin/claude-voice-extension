@@ -48,8 +48,9 @@ export class TerminalInputInjector {
 
   constructor(options: InputInjectorOptions = {}) {
     if (options.terminal === 'auto' || !options.terminal) {
-      // Auto-detect: prefer iTerm if running, otherwise Terminal
-      this.terminal = 'Terminal';
+      // Auto-detect terminal from TERM_PROGRAM env var
+      const detected = TerminalInputInjector.detectTerminal();
+      this.terminal = detected === 'unknown' ? 'Terminal' : detected;
     } else {
       this.terminal = options.terminal;
     }
@@ -67,24 +68,61 @@ export class TerminalInputInjector {
       throw new Error('Terminal input injection is only supported on macOS and Linux');
     }
 
-    // Escape special characters for AppleScript
-    const escapedText = this.escapeForAppleScript(text);
-
-    const script = this.generateAppleScript(escapedText, pressEnter);
-
-    try {
-      await this.runAppleScript(script);
-    } catch (error) {
-      // Try the other terminal app
-      const alternateTerminal = this.terminal === 'Terminal' ? 'iTerm' : 'Terminal';
-      const alternateScript = this.generateAppleScript(escapedText, pressEnter, alternateTerminal);
-
+    // For iTerm, use the direct write text API (most reliable)
+    if (this.terminal === 'iTerm') {
+      const escapedText = this.escapeForAppleScript(text);
+      const script = this.generateAppleScript(escapedText, pressEnter);
       try {
-        await this.runAppleScript(alternateScript);
+        await this.runAppleScript(script);
+        return;
+      } catch {
+        // Fall through to clipboard paste
+      }
+    }
+
+    // For Terminal.app (or iTerm fallback), use clipboard paste approach
+    try {
+      await this.pasteViaClipboard(text, pressEnter);
+    } catch (error) {
+      // Last resort: try keystroke approach
+      const escapedText = this.escapeForAppleScript(text);
+      const script = this.generateAppleScript(escapedText, pressEnter);
+      try {
+        await this.runAppleScript(script);
       } catch {
         throw new Error(`Failed to inject text into terminal: ${error}`);
       }
     }
+  }
+
+  /**
+   * Paste text via macOS clipboard (pbcopy + Cmd+V) - more reliable than keystroke
+   */
+  private async pasteViaClipboard(text: string, pressEnter: boolean): Promise<void> {
+    // Copy text to clipboard via pbcopy
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn('pbcopy', [], { stdio: ['pipe', 'ignore', 'ignore'] });
+      proc.stdin.write(text);
+      proc.stdin.end();
+      proc.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`pbcopy failed with code ${code}`));
+      });
+      proc.on('error', reject);
+    });
+
+    // Paste with Cmd+V and optionally press Enter
+    const script = pressEnter
+      ? `tell application "System Events"
+keystroke "v" using command down
+delay 0.15
+key code 36
+end tell`
+      : `tell application "System Events"
+keystroke "v" using command down
+end tell`;
+
+    await this.runAppleScript(script);
   }
 
   /**
@@ -447,6 +485,10 @@ end tell`;
  * Convenience function to send voice-transcribed text to Claude Code
  */
 export async function sendToClaudeCode(text: string): Promise<void> {
-  const injector = new TerminalInputInjector({ terminal: 'auto' });
+  // Lazy import to avoid circular dependency
+  const { loadConfig } = await import('../config');
+  const config = loadConfig();
+  const terminalOption = config.terminal?.targetTerminal || 'auto';
+  const injector = new TerminalInputInjector({ terminal: terminalOption });
   await injector.type(text, true);
 }
