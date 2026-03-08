@@ -1695,6 +1695,41 @@ program
     }
   });
 
+program
+  .command('speak [state]')
+  .description('Toggle or set auto-speak (on/off)')
+  .action(async (state?: string) => {
+    try {
+      let newValue: boolean;
+      if (state === 'on') {
+        newValue = true;
+      } else if (state === 'off') {
+        newValue = false;
+      } else {
+        // Toggle current value
+        const current = getConfigValue('tts.autoSpeak') as boolean;
+        newValue = !current;
+      }
+
+      setConfigValue('tts.autoSpeak', newValue);
+
+      // Notify daemon if running
+      try {
+        await fetch('http://127.0.0.1:3456/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tts: { autoSpeak: newValue } }),
+        });
+      } catch {
+        // Daemon not running, config saved anyway
+      }
+
+      console.log(`Auto-speak: ${newValue ? 'ON' : 'OFF'}`);
+    } catch (error) {
+      console.error('Failed to update auto-speak setting:', error);
+    }
+  });
+
 // ============================================================================
 // Utility Commands
 // ============================================================================

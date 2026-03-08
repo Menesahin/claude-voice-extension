@@ -2,7 +2,7 @@
   "version": 1,
   "tts": {
     "provider": "piper",
-    "autoSpeak": true,
+    "autoSpeak": false,
     "maxSpeechLength": 5000,
     "skipCodeBlocks": true,
     "macos": {
