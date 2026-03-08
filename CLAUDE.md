@@ -87,8 +87,8 @@ Call `clearConfigCache()` to force reload after external config changes.
 
 ```
 tts.provider          # piper | macos-say | openai | elevenlabs | espeak | disabled
-tts.autoSpeak         # true - auto-speak Claude responses
-tts.maxSpeechLength   # 1500 - max chars to speak
+tts.autoSpeak         # false - auto-speak Claude responses
+tts.maxSpeechLength   # 5000 - max chars to speak
 tts.skipCodeBlocks    # true - skip code in TTS
 tts.piper.voice       # en_US-joe-medium
 tts.openai.voice      # nova | alloy | echo | fable | onyx | shimmer
@@ -97,10 +97,10 @@ tts.macos.rate        # 200 (words per minute)
 
 stt.provider          # sherpa-onnx | openai | whisper-local | disabled
 stt.language          # en (ISO code)
-stt.sherpaOnnx.model  # whisper-tiny | whisper-base | whisper-small
+stt.sherpaOnnx.model  # whisper-small (default) | whisper-base | whisper-tiny
 
 wakeWord.enabled      # true
-wakeWord.provider     # sherpa-onnx | picovoice
+wakeWord.provider     # openwakeword | sherpa-onnx | picovoice
 wakeWord.keyword      # jarvis
 wakeWord.sensitivity  # 0.5 (0.0-1.0)
 wakeWord.playSound    # true - play Ping/Pop sounds
