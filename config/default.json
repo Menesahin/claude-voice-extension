@@ -34,7 +34,7 @@
     "provider": "sherpa-onnx",
     "language": "en",
     "sherpaOnnx": {
-      "model": "whisper-tiny"
+      "model": "whisper-small"
     },
     "whisperLocal": {
       "model": "base",

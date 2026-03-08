@@ -1,5 +1,7 @@
 import { EventEmitter } from 'events';
 import { spawn } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 import { WakeWordConfig, RecordingConfig } from '../config';
 import { getPlatformCapabilities } from '../platform';
 import { playSound } from '../utils/audio';
@@ -58,27 +60,50 @@ export class PicovoiceDetector extends EventEmitter {
       // Dynamic import for picovoice
       const { Porcupine, BuiltinKeyword } = await import('@picovoice/porcupine-node');
 
-      // Get keyword
+      // Get keyword - check for custom .ppn file first
       const keywordLower = this.config.keyword.toLowerCase();
-      const builtinName = BUILTIN_KEYWORDS[keywordLower];
+      const customPpnPath = this.findCustomKeywordPath(keywordLower);
 
-      if (!builtinName) {
-        console.warn(`Keyword "${this.config.keyword}" is not a built-in Porcupine keyword.`);
-        console.warn(`Available: ${Object.keys(BUILTIN_KEYWORDS).join(', ')}`);
-        return;
+      if (customPpnPath) {
+        // Use custom .ppn model file
+        console.log(`Using custom Picovoice keyword: ${customPpnPath}`);
+        this.porcupine = new Porcupine(accessKey, [customPpnPath], [this.config.sensitivity]);
+      } else {
+        // Fall back to built-in keyword
+        const builtinName = BUILTIN_KEYWORDS[keywordLower];
+
+        if (!builtinName) {
+          console.warn(`Keyword "${this.config.keyword}" is not a built-in Porcupine keyword and no .ppn file found.`);
+          console.warn(`Available built-in: ${Object.keys(BUILTIN_KEYWORDS).join(', ')}`);
+          console.warn(`Custom .ppn files can be placed in ~/.claude-voice/models/`);
+          return;
+        }
+
+        const keyword = BuiltinKeyword[builtinName as keyof typeof BuiltinKeyword];
+        this.porcupine = new Porcupine(accessKey, [keyword], [this.config.sensitivity]);
       }
-
-      // Get the built-in keyword enum value
-      const keyword = BuiltinKeyword[builtinName as keyof typeof BuiltinKeyword];
-
-      // Create Porcupine instance
-      this.porcupine = new Porcupine(accessKey, [keyword], [this.config.sensitivity]);
 
       console.log(`Picovoice detector initialized (keyword: "${this.config.keyword}")`);
     } catch (error) {
       console.error('Failed to initialize Picovoice:', error);
       throw error;
     }
+  }
+
+  private findCustomKeywordPath(keyword: string): string | null {
+    // Normalize keyword: "hey-claude" or "hey_claude" or "hey claude" → "hey-claude.ppn"
+    const normalized = keyword.replace(/[\s_]/g, '-');
+    const searchPaths = [
+      path.join(process.env.HOME || '', '.claude-voice', 'models', `${normalized}.ppn`),
+      path.join(__dirname, '..', '..', 'models', `${normalized}.ppn`),
+    ];
+
+    for (const p of searchPaths) {
+      if (fs.existsSync(p)) {
+        return p;
+      }
+    }
+    return null;
   }
 
   async start(): Promise<void> {

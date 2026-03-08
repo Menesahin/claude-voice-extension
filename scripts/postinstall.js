@@ -7,10 +7,8 @@
  * 2. Install Claude Code hooks
  * 3. Install Claude Code plugin
  * 4. Download keyword spotting model for wake word (19MB)
- * 5. Check platform-specific audio tools
- *
- * TTS uses native providers (macOS-say / espeak) for zero-config.
- * STT model (whisper-tiny) downloads on first voice command.
+ * 5. Download STT model (whisper-small, ~488MB)
+ * 6. Check platform-specific audio tools
  * Uses pure Node.js for downloads (no curl/bzip2 system dependencies)
  */
 
@@ -198,7 +196,7 @@ async function runSetup() {
   let ttsProviderId = platform === 'darwin' ? 'macos-say' : 'espeak';
 
   // 1. Create config directory and set up configuration
-  console.log('Step 1/6: Setting up configuration...');
+  console.log('Step 1/7: Setting up configuration...');
   if (!fs.existsSync(CONFIG_DIR)) {
     fs.mkdirSync(CONFIG_DIR, { recursive: true });
     console.log('  [✓] Created config directory');
@@ -224,7 +222,7 @@ async function runSetup() {
     config.stt = config.stt || {};
     config.stt.provider = 'sherpa-onnx';
     config.stt.sherpaOnnx = config.stt.sherpaOnnx || {};
-    config.stt.sherpaOnnx.model = 'whisper-tiny';
+    config.stt.sherpaOnnx.model = 'whisper-small';
     config.wakeWord = config.wakeWord || {};
     // Smart wake word provider: prefer openWakeWord if Python 3 is available
     const pythonCmd = hasPython3();
@@ -241,7 +239,7 @@ async function runSetup() {
   }
 
   // 2. Install Claude Code hooks
-  console.log('\nStep 2/6: Installing Claude Code hooks...');
+  console.log('\nStep 2/7: Installing Claude Code hooks...');
   try {
     const settingsFile = installHooks(HOOKS_DIR);
     console.log('  [✓] Hooks installed');
@@ -251,7 +249,7 @@ async function runSetup() {
   }
 
   // 3. Install Claude Code plugin (skill)
-  console.log('\nStep 3/6: Installing Claude Code plugin...');
+  console.log('\nStep 3/7: Installing Claude Code plugin...');
   try {
     const pluginPath = installPlugin(path.join(__dirname, '..'));
     console.log('  [✓] Plugin installed');
@@ -261,7 +259,7 @@ async function runSetup() {
   }
 
   // 4. Set up wake word detection
-  console.log('\nStep 4/6: Setting up wake word detection...');
+  console.log('\nStep 4/7: Setting up wake word detection...');
 
   // Re-read config to check which provider was selected
   let wakeWordProvider = 'sherpa-onnx';
@@ -330,8 +328,53 @@ async function runSetup() {
     console.log('  Tip: Install Python 3 + openwakeword for better wake word detection');
   }
 
-  // 5. Install Piper TTS voice for high-quality speech
-  console.log('\nStep 5/6: Installing Piper TTS voice...');
+  // Copy custom Picovoice .ppn keyword files to models dir
+  try {
+    const ppnSourceDir = path.join(__dirname, '..', 'models');
+    if (fs.existsSync(ppnSourceDir)) {
+      const ppnFiles = fs.readdirSync(ppnSourceDir).filter(f => f.endsWith('.ppn'));
+      if (ppnFiles.length > 0) {
+        if (!fs.existsSync(MODELS_DIR)) {
+          fs.mkdirSync(MODELS_DIR, { recursive: true });
+        }
+        for (const ppn of ppnFiles) {
+          const src = path.join(ppnSourceDir, ppn);
+          const dest = path.join(MODELS_DIR, ppn);
+          fs.copyFileSync(src, dest);
+        }
+        console.log(`  [✓] Copied ${ppnFiles.length} Picovoice keyword model(s): ${ppnFiles.join(', ')}`);
+      }
+    }
+  } catch (err) {
+    console.log('  [!] Could not copy Picovoice keyword models:', err.message);
+  }
+
+  // 5. Download STT model (whisper-small)
+  console.log('\nStep 5/7: Downloading STT model...');
+  try {
+    const sttModelId = 'whisper-small';
+    const sttModelFolder = 'sherpa-onnx-whisper-small';
+    const sttModelUrl = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-small.tar.bz2';
+    const sttModelPath = path.join(MODELS_DIR, sttModelFolder);
+
+    if (fs.existsSync(sttModelPath)) {
+      console.log(`  [✓] STT model already installed: ${sttModelId}`);
+    } else {
+      if (!fs.existsSync(MODELS_DIR)) {
+        fs.mkdirSync(MODELS_DIR, { recursive: true });
+      }
+
+      console.log(`  Model: Whisper Small (~950MB download, ~488MB extracted)`);
+      await downloadAndExtract(sttModelUrl, MODELS_DIR, sttModelFolder, sttModelId);
+      console.log(`  [✓] STT model installed: ${sttModelId}`);
+    }
+  } catch (err) {
+    console.log('  [!] Could not download STT model:', err.message);
+    console.log('      Run manually: claude-voice model download whisper-small');
+  }
+
+  // 6. Install Piper TTS voice for high-quality speech
+  console.log('\nStep 6/7: Installing Piper TTS voice...');
   const pythonForPiper = hasPython3();
   if (pythonForPiper) {
     try {
@@ -407,8 +450,8 @@ async function runSetup() {
     console.log(`  Using ${ttsProvider} (native TTS)`);
   }
 
-  // 6. Check platform-specific audio tools
-  console.log('\nStep 6/6: Checking audio tools...');
+  // 7. Check platform-specific audio tools
+  console.log('\nStep 7/7: Checking audio tools...');
 
   if (platform === 'darwin') {
     console.log('  [✓] TTS: macOS Say (built-in)');
@@ -494,11 +537,12 @@ async function runSetup() {
     }
   }
 
-  // STT model downloads on first use - just note it
+  // Check STT model
+  const whisperSmall = path.join(MODELS_DIR, 'sherpa-onnx-whisper-small');
   const whisperTiny = path.join(MODELS_DIR, 'sherpa-onnx-whisper-tiny');
   const whisperBase = path.join(MODELS_DIR, 'sherpa-onnx-whisper-base');
-  if (!fs.existsSync(whisperTiny) && !fs.existsSync(whisperBase)) {
-    console.log('  [i] STT model (whisper-tiny, 75MB) will download on first voice command');
+  if (!fs.existsSync(whisperSmall) && !fs.existsSync(whisperTiny) && !fs.existsSync(whisperBase)) {
+    installationIssues.push('STT model not installed. Run: claude-voice model download whisper-small');
   } else {
     console.log('  [✓] STT model installed');
   }
@@ -536,7 +580,7 @@ async function runSetup() {
   console.log('  The extension will auto-start when you launch Claude Code.');
   const ttsLabel = ttsProviderId === 'piper' ? `${ttsProvider} (neural voice: en_US-joe-medium)` : `${ttsProvider} (native)`;
   console.log(`  TTS: ${ttsLabel}`);
-  console.log('  STT: Sherpa-ONNX Whisper (downloads on first use)');
+  console.log('  STT: Sherpa-ONNX Whisper Small');
   const wakeWordName = wakeWordProvider === 'openwakeword' ? 'openWakeWord' : 'Sherpa-ONNX KWS';
   const wakeWordPhrase = wakeWordProvider === 'openwakeword' ? 'Hey Jarvis' : 'Jarvis';
   console.log(`  Wake Word: ${wakeWordName} - Say "${wakeWordPhrase}" to start speaking.\n`);
